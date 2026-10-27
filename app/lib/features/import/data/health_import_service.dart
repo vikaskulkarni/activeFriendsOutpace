@@ -1,6 +1,8 @@
 import 'dart:developer' as developer;
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:activefriends/data/local/app_database.dart';
 import 'package:activefriends/features/import/data/local_import_repository.dart';
 import 'package:health/health.dart';
@@ -554,83 +556,76 @@ class HealthImportService {
     }
 
     final sourceNames = windowRecords.map((r) => r.sourceName).toSet();
+    final ownerKey = sourceKey(workout);
 
-    // ── Multi-source: use fallback (totalDistance) ─────────────────────
-    // Multiple distinct sources means Health Connect has records from
-    // different apps. They may be duplicates OR complementary — we can't
-    // reliably tell. The workout's totalDistance is the safest value.
-    if (distanceBySource.length > 1) {
-      return (
-        distance: fallback,
-        diag: <String, dynamic>{
-          'decision': 'fallback_multi_source',
-          'workout_source': workout.sourceId,
-          'workout_sourceName': workout.sourceName,
-          'source_key': sourceKey(workout),
-          'all_sources': distanceBySource.map(
-            (k, v) => MapEntry(k, v.round()),
-          ),
-          'distinct_sourceNames': sourceNames.toList(),
-          'fallback_m': fallback,
-        },
-      );
-    }
-
-    // ── Single source key: check for temporal overlap ─────────────────
-    // When all records collapse into one bucket (empty/identical sourceId
-    // + sourceName), two apps may STILL be writing duplicates (e.g. Garmin
-    // + phone pedometer with identical empty sourceId). Detect by checking
-    // if consecutive records have nearly identical timestamps (≤2s gap).
-    // If ≥40% overlap → halve. Otherwise use fallback.
-    final totalSum = distanceBySource.values.first;
-
-    final sorted = windowRecords
-        .where((r) => r.value is NumericHealthValue)
-        .toList()
-      ..sort((a, b) => a.dateFrom.compareTo(b.dateFrom));
-
-    var overlapCount = 0;
-    for (var i = 1; i < sorted.length; i++) {
-      final gap = sorted[i].dateFrom.difference(sorted[i - 1].dateFrom).abs();
-      if (gap.inSeconds <= 2) {
-        overlapCount++;
-      }
-    }
-
-    final overlapRatio =
-        sorted.length > 1 ? overlapCount / (sorted.length - 1) : 0.0;
-    final isDoubled = overlapRatio >= 0.40;
-    // When overlap detected, halve the DISTANCE_DELTA sum (more accurate
-    // than halving fallback, since fallback may include rounding).
-    // Otherwise, trust the workout's totalDistance.
-    final chosen = isDoubled ? totalSum / 2 : (fallback ?? totalSum);
+    // ── Pick the authoritative source ──────────────────────────────────
+    // Health Connect's `totalDistance` SUMS every source's DistanceRecords.
+    // For walk/run the phone's own Health Connect aggregator
+    // (com.android.healthconnect.phone.*) writes a parallel duplicate of the
+    // watch's distance, so that sum — and thus totalDistance — is ~2x the real
+    // distance. The authoritative value is the single device that owns the
+    // workout, never the cross-source sum. A prior "cleanup" (commit ceb118c)
+    // regressed this to `fallback`/totalDistance, which is exactly what
+    // doubled Garmin / Samsung Health / HealthSync walk & run imports.
+    final result = chooseSourceAwareDistance(
+      distanceBySource: distanceBySource,
+      ownerKey: ownerKey,
+      fallback: fallback,
+    );
 
     developer.log(
-      'sourceAwareDist: SINGLE_BUCKET '
-      '${isDoubled ? "HALVED" : "FALLBACK"} '
-      'overlap=${(overlapRatio * 100).toStringAsFixed(0)}% '
-      'total=${totalSum.round()}m chosen=${chosen.round()}m '
+      'sourceAwareDist: ${result.decision} '
+      'chosen=${result.distance?.round()}m owner=$ownerKey '
       'fallback=${fallback?.round()}m '
-      'records=${sorted.length} overlaps=$overlapCount '
-      'sourceNames=$sourceNames',
+      'sources=${distanceBySource.map((k, v) => MapEntry(k, v.round()))}',
       name: 'HealthImport',
     );
 
     return (
-      distance: chosen,
+      distance: result.distance,
       diag: <String, dynamic>{
-        'decision': isDoubled ? 'halved_overlap' : 'fallback_single_source',
+        'decision': result.decision,
         'workout_source': workout.sourceId,
         'workout_sourceName': workout.sourceName,
-        'total_sum_m': totalSum.round(),
-        'chosen_m': chosen.round(),
-        'window_records': sorted.length,
-        'overlap_count': overlapCount,
-        'overlap_ratio': double.parse(overlapRatio.toStringAsFixed(2)),
+        'source_key': ownerKey,
+        'all_sources': distanceBySource.map((k, v) => MapEntry(k, v.round())),
         'distinct_sourceNames': sourceNames.toList(),
+        'chosen_m': result.distance?.round(),
         'fallback_m': fallback,
       },
     );
+  }
+
+  /// Pick the authoritative distance from per-source DISTANCE_DELTA sums.
+  ///
+  /// Rules (restored after the `ceb118c` "cleanup" regression that summed all
+  /// sources via `totalDistance` and doubled walk/run imports):
+  ///   • Prefer the workout owner's own source — one device's own total is
+  ///     authoritative and never double-counts.
+  ///   • If the owner wrote no in-window records, use the largest single
+  ///     source (the device that tracked the full session).
+  ///   • NEVER sum across sources: the phone's Health Connect aggregator
+  ///     (`com.android.healthconnect.phone.*`) duplicates the watch's distance,
+  ///     so summing (i.e. `totalDistance`) ~doubles walk/run distance.
+  ///
+  /// `distanceBySource` maps a source key to its summed in-window distance (m).
+  /// `ownerKey` is the workout's own source key. `fallback` is the workout's
+  /// `totalDistance`, used only when there are no per-source records at all.
+  @visibleForTesting
+  static ({double? distance, String decision}) chooseSourceAwareDistance({
+    required Map<String, double> distanceBySource,
+    required String ownerKey,
+    required double? fallback,
+  }) {
+    if (distanceBySource.isEmpty) {
+      return (distance: fallback, decision: 'fallback_no_sources');
+    }
+    final ownerDistance = distanceBySource[ownerKey];
+    if (ownerDistance != null) {
+      return (distance: ownerDistance, decision: 'source_match');
+    }
+    final largest = distanceBySource.values.reduce((a, b) => a > b ? a : b);
+    return (distance: largest, decision: 'largest_source');
   }
 
   /// Human-readable Health Connect status, appended to error messages so the
