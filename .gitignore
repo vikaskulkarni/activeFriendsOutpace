@@ -63,3 +63,6 @@ package-lock.json
 
 # ─── Misc ─────────────────────────────────────────────────────────────────────
 *.log
+
+# generated feedback report (contains user data)
+tools/feedback_report.html
