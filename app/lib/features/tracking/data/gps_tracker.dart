@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 
 import 'package:activefriends/data/local/app_database.dart' as local;
 import 'package:activefriends/features/tracking/data/tracking_local_repository.dart';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 class TrackingSnapshot {
@@ -88,7 +90,7 @@ class GpsTracker {
   StreamSubscription<Position>? _positions;
   Position? _previous;
   DateTime? _startedAt;
-  double _distanceM = 0;
+  GpsDistanceAccumulator _distanceAcc = GpsDistanceAccumulator();
   double _elevationGainM = 0;
   Duration _movingTime = Duration.zero;
   DateTime? _belowPauseThresholdSince;
@@ -113,7 +115,7 @@ class GpsTracker {
       movingTime: _movingTime,
       isAutoPaused: _autoPaused,
       isManuallyPaused: _manuallyPaused,
-      distanceM: _distanceM,
+      distanceM: _distanceAcc.distanceM,
       elevationGainM: _elevationGainM,
       acceptedFixes: _acceptedFixes,
       receivedFixes: _receivedFixes,
@@ -149,7 +151,9 @@ class GpsTracker {
     _manuallyPaused = false;
     _pauseThresholdMs = activityType == 'walk' ? 0.5 : 0.7;
     _resumeThresholdMs = activityType == 'walk' ? 0.8 : 1.4;
-    _distanceM = restoredSession?.distanceM ?? 0;
+    _distanceAcc = GpsDistanceAccumulator(
+      initialDistanceM: restoredSession?.distanceM ?? 0,
+    );
     _elevationGainM = restoredSession?.elevationGainM ?? 0;
     _movingTime = Duration(seconds: restoredSession?.movingTimeS ?? 0);
     _acceptedFixes = restoredSession?.acceptedFixes ?? 0;
@@ -212,6 +216,7 @@ class GpsTracker {
             if (position.timestamp.difference(_belowPauseThresholdSince!) >=
                 const Duration(seconds: 20)) {
               _autoPaused = true;
+              _distanceAcc.resetAnchor();
               await _localRepository.updateStatus(sessionId, 'paused');
             }
           } else if (!_autoPaused && speed >= _pauseThresholdMs) {
@@ -239,26 +244,26 @@ class GpsTracker {
             if (!_autoPaused && durationS > 0 && !_manuallyPaused) {
               _movingTime += Duration(seconds: durationS);
             }
-            // ── Distance accumulation with noise suppression ──────────
-            // GPS jitter inflates distance by 10-20% when raw Haversine
-            // segments are summed without filtering (random walk effect).
-            //
-            // Guards:
-            // 1. Both fixes must have accuracy ≤ 30 m — loose fixes
-            //    bounce too much. We still ACCEPT the fix for the track
-            //    polyline and for _previous advancement, but we do NOT
-            //    count it towards distance.
-            // 2. Segment must be ≥ 1.5 m — filters GPS jitter at
-            //    standstill (~0.5–1 m noise) while passing normal
-            //    walking pace (~1.4 m/s × 2 s = 2.8 m per segment).
-            //    Previous 3 m threshold rejected most walk segments.
-            // 3. Speed > 12 m/s already caught above (teleport gate).
-            final bothAccurate =
-                previous.accuracy <= 30 && position.accuracy <= 30;
-            if (!_autoPaused && !_manuallyPaused && bothAccurate && segmentM >= 1.5) {
-              _distanceM += segmentM;
+            // ── Distance via net-displacement anchoring ───────────────
+            // Summing every raw Haversine segment inflates distance (GPS
+            // jitter random-walk). A per-segment minimum instead DROPS real
+            // ~1 m walking steps — distanceFilter:1 samples ~every metre, so
+            // real walk segments straddle the old 1.5 m gate — which
+            // under-counted walks 18-40%. GpsDistanceAccumulator commits
+            // distance only once a fix has moved `thresholdM` from the anchor,
+            // so sub-threshold jitter cancels while real movement accumulates.
+            // Cycling is unaffected (its segments already exceed the
+            // threshold). Elevation gain stays per-fix.
+            if (!_autoPaused && !_manuallyPaused) {
+              _distanceAcc.addFix(
+                latitude: position.latitude,
+                longitude: position.longitude,
+                accuracy: position.accuracy,
+              );
               final climb = position.altitude - previous.altitude;
-              if (climb >= 3 && previous.accuracy <= 20 && position.accuracy <= 20) {
+              if (climb >= 3 &&
+                  previous.accuracy <= 20 &&
+                  position.accuracy <= 20) {
                 _elevationGainM += climb;
               }
             }
@@ -286,7 +291,7 @@ class GpsTracker {
                 elevation: position.altitude,
                 accuracy: position.accuracy,
               ),
-              distanceM: _distanceM,
+              distanceM: _distanceAcc.distanceM,
               elevationGainM: _elevationGainM,
               movingTimeS: _movingTime.inSeconds,
               status: _autoPaused ? 'paused' : 'active',
@@ -299,6 +304,7 @@ class GpsTracker {
   Future<void> pause() async {
     if (_manuallyPaused || _activeSessionId == null) return;
     _manuallyPaused = true;
+    _distanceAcc.resetAnchor();
     await _localRepository.updateStatus(_activeSessionId!, 'paused');
   }
 
@@ -317,6 +323,93 @@ class GpsTracker {
   }
 
   Future<void> dispose() => _positions?.cancel() ?? Future.value();
+}
+
+/// Accumulates GPS distance using net-displacement anchoring to suppress GPS
+/// jitter without discarding real movement.
+///
+/// Why not sum raw segments or use a per-segment minimum: at
+/// `distanceFilter: 1` the OS emits a fix roughly every metre, so summing every
+/// Haversine segment inflates distance (jitter random-walk), while a
+/// per-segment minimum (the old `segmentM >= 1.5` gate) DROPS real ~1 m walking
+/// steps and under-counted walks 18-40%. A single 1 m step is also smaller than
+/// GPS accuracy (~9 m), so real-vs-jitter can't be judged per segment — only
+/// via NET displacement over several fixes, where jitter cancels and real
+/// movement survives.
+///
+/// Anchoring: keep an anchor point; only when a fix has moved [thresholdM] from
+/// it do we add that displacement and advance the anchor. Cycling is unaffected
+/// — its segments already exceed the threshold.
+@visibleForTesting
+class GpsDistanceAccumulator {
+  GpsDistanceAccumulator({this.thresholdM = 8.0, double initialDistanceM = 0})
+    : _distanceM = initialDistanceM;
+
+  /// Net displacement (m) a fix must travel from the anchor before its movement
+  /// is counted. ≈ GPS accuracy: large enough that jitter cancels, small enough
+  /// to preserve route curvature. The on-device tuning knob — validate against
+  /// a known loop / Strava before changing.
+  final double thresholdM;
+
+  /// Fixes looser than this never move the anchor or commit distance: a loose
+  /// fix can sit `accuracy` metres from truth and fake a real move.
+  static const double maxAnchorAccuracyM = 30;
+
+  double _distanceM;
+  double? _anchorLat;
+  double? _anchorLon;
+
+  double get distanceM => _distanceM;
+
+  /// Drop the anchor (e.g. on pause). The next accurate fix re-anchors without
+  /// committing the gap, so movement during a pause isn't counted.
+  void resetAnchor() {
+    _anchorLat = null;
+    _anchorLon = null;
+  }
+
+  /// Feed one accepted fix. Returns the distance (m) this fix committed (0 if
+  /// it was jitter, below threshold, or too inaccurate to anchor on).
+  double addFix({
+    required double latitude,
+    required double longitude,
+    required double accuracy,
+  }) {
+    if (accuracy > maxAnchorAccuracyM) return 0;
+    final anchorLat = _anchorLat;
+    final anchorLon = _anchorLon;
+    if (anchorLat == null || anchorLon == null) {
+      _anchorLat = latitude;
+      _anchorLon = longitude;
+      return 0;
+    }
+    final moved = _haversineM(anchorLat, anchorLon, latitude, longitude);
+    if (moved < thresholdM) return 0;
+    _distanceM += moved;
+    _anchorLat = latitude;
+    _anchorLon = longitude;
+    return moved;
+  }
+
+  static double _haversineM(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    const earthRadiusM = 6371000.0;
+    final dLat = _toRad(lat2 - lat1);
+    final dLon = _toRad(lon2 - lon1);
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRad(lat1)) *
+            math.cos(_toRad(lat2)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    return earthRadiusM * 2 * math.asin(math.min(1.0, math.sqrt(a)));
+  }
+
+  static double _toRad(double degrees) => degrees * math.pi / 180.0;
 }
 
 class TrackingException implements Exception {
