@@ -113,6 +113,16 @@ class HealthImportService {
     final window = await _core.readWorkouts(from: importStart, to: now);
     final existingIds =
         await _core.existingExternalIds(user.id, source, importStart, now);
+    // Same-activity dedup: skip workouts that duplicate an already-imported
+    // activity (Apple Watch + Strava, which re-exports under new UUIDs). Keeps
+    // the first. external_id can't catch this because the UUIDs differ.
+    final duplicateSkipIds = await _core.duplicateSkipIdsForWindow(
+      userId: user.id,
+      source: source,
+      window: window,
+      from: importStart,
+      to: now,
+    );
 
     var importedCount = 0;
     var queuedCount = 0;
@@ -127,6 +137,10 @@ class HealthImportService {
       // WorkoutHealthValue, so this is effectively always 0.
       if (workout.value is! WorkoutHealthValue) {
         nonWorkoutValues++;
+        continue;
+      }
+      if (duplicateSkipIds.contains(workout.uuid)) {
+        skippedCount++;
         continue;
       }
       final outcome = await _core.syncSingleActivity(

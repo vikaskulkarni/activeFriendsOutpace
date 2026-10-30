@@ -108,10 +108,23 @@ class BackgroundSyncService {
     final existingIds =
         await core.existingExternalIds(userId, source, from, now);
     final changedIds = await _resolveChangedIds(userId, source); // null ⇒ all
+    // Same-activity dedup: skip workouts that duplicate an already-imported
+    // activity (Apple Watch + Strava re-exports under new UUIDs). Keeps first.
+    final duplicateSkipIds = await core.duplicateSkipIdsForWindow(
+      userId: userId,
+      source: source,
+      window: window,
+      from: from,
+      to: now,
+    );
 
     var imported = 0, skipped = 0, queued = 0;
     for (final workout in window.workouts) {
       if (changedIds != null && !changedIds.contains(workout.uuid)) continue;
+      if (duplicateSkipIds.contains(workout.uuid)) {
+        skipped++;
+        continue;
+      }
       switch (await core.syncSingleActivity(
         userId: userId,
         source: source,

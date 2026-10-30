@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'package:activefriends/features/import/data/local_import_repository.dart';
+import 'package:activefriends/features/import/domain/duplicate_detector.dart';
 import 'package:health/health.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -509,5 +510,91 @@ class HealthSyncCore {
       HealthWorkoutActivityType.STRENGTH_TRAINING => 'strength',
       _ => 'other',
     };
+  }
+
+  /// Returns the `external_id`s in [window] to SKIP because they duplicate an
+  /// already-imported activity (same type + >80% time-window overlap) or an
+  /// earlier workout in this same batch. Keeps the first; UUID-agnostic.
+  ///
+  /// Needed because HealthKit holds multiple workouts for one real activity
+  /// (Apple Watch + third-party apps like Strava, which re-export the same
+  /// workout under NEW UUIDs over time), so `external_id` dedup is insufficient.
+  /// Offline-safe: if the Supabase lookup fails, only within-batch duplicates
+  /// are collapsed (never drops a genuinely new activity).
+  Future<Set<String>> duplicateSkipIdsForWindow({
+    required String userId,
+    required String source,
+    required WorkoutWindow window,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final existing = <ActivityFingerprint>[];
+    try {
+      final rows = await _client
+          .from('activities')
+          .select('external_id, type, started_at, ended_at')
+          .eq('user_id', userId)
+          .eq('source', source)
+          .gte('started_at', from.toUtc().toIso8601String())
+          .lte('started_at', to.toUtc().toIso8601String());
+      for (final row in rows as List<dynamic>) {
+        final extId = row['external_id'] as String?;
+        if (extId == null) continue;
+        final startedAt = DateTime.tryParse(row['started_at'] as String? ?? '');
+        if (startedAt == null) continue;
+        final endedRaw = row['ended_at'] as String?;
+        existing.add(
+          ActivityFingerprint(
+            externalId: extId,
+            activityType: row['type'] as String? ?? 'other',
+            startedAt: startedAt,
+            endedAt:
+                (endedRaw == null ? null : DateTime.tryParse(endedRaw)) ??
+                startedAt,
+          ),
+        );
+      }
+    } catch (_) {
+      // Network failure — within-batch dedup below still applies.
+    }
+
+    final incoming = <ActivityFingerprint>[
+      for (final workout in window.workouts)
+        if (workout.value is WorkoutHealthValue)
+          ActivityFingerprint(
+            externalId: workout.uuid,
+            activityType: _mapActivityType(
+              (workout.value as WorkoutHealthValue).workoutActivityType,
+            ),
+            startedAt: workout.dateFrom,
+            endedAt: workout.dateTo,
+          ),
+    ];
+    return duplicateExternalIdsToSkip(incoming: incoming, existing: existing);
+  }
+
+  /// Pure skip-decision over [incoming] (this run's workouts, in read order)
+  /// against [existing] (already-imported activities). Reuses [DuplicateDetector]
+  /// (same type + >80% time overlap). Keeps the already-imported / first-seen
+  /// activity and skips later duplicates.
+  @visibleForTesting
+  static Set<String> duplicateExternalIdsToSkip({
+    required List<ActivityFingerprint> incoming,
+    required List<ActivityFingerprint> existing,
+  }) {
+    final skip = <String>{};
+    final accepted = <ActivityFingerprint>[...existing];
+    for (final candidate in incoming) {
+      final match = DuplicateDetector.findCandidate(
+        activity: candidate,
+        candidates: accepted,
+      );
+      if (match != null) {
+        skip.add(candidate.externalId);
+      } else {
+        accepted.add(candidate);
+      }
+    }
+    return skip;
   }
 }
