@@ -154,6 +154,7 @@ class HealthSyncCore {
     required HealthDataPoint workout,
     required WorkoutWindow window,
     required Set<String> existingExternalIds,
+    void Function(Map<String, dynamic> diag)? onDistanceDiag,
   }) async {
     final value = workout.value;
     if (value is! WorkoutHealthValue) {
@@ -202,6 +203,17 @@ class HealthSyncCore {
       fallback: value.totalDistance?.toDouble(),
     );
     final sourceAwareDistance = distResult.distance;
+    // Emit the per-workout distance decision to the optional diag sink.
+    // Invoked only AFTER the overlap-skip above, so the manual import's
+    // collected list is empty exactly when there were no non-overlapping
+    // workouts (restores the original persisted-diagnostics trigger). The
+    // shape matches the pre-extraction `distanceDiags.add({...})` entry.
+    onDistanceDiag?.call({
+      'type': workoutType,
+      'started_at': workout.dateFrom.toUtc().toIso8601String(),
+      'uuid': workout.uuid,
+      ...distResult.diag,
+    });
 
     final activity = <String, dynamic>{
       'user_id': userId,

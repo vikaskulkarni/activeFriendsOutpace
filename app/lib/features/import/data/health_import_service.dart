@@ -119,6 +119,7 @@ class HealthImportService {
     var skippedCount = 0;
     var alreadySyncedCount = 0;
     var nonWorkoutValues = 0;
+    final distanceDiags = <Map<String, dynamic>>[];
     for (final workout in window.workouts) {
       // Pre-filter non-workout values here so they are reflected in the
       // diagnostics below (the core guards against them too, but does not
@@ -134,6 +135,7 @@ class HealthImportService {
         workout: workout,
         window: window,
         existingExternalIds: existingIds,
+        onDistanceDiag: distanceDiags.add,
       );
       switch (outcome) {
         case SyncOutcome.imported:
@@ -160,11 +162,10 @@ class HealthImportService {
     // ── Always-on distance diagnostics ──────────────────────────────────
     // Persisted on every import so we can diagnose source-aware distance
     // decisions even when workouts import successfully (doubled-distance
-    // bugs only show when data DOES come through). Per-workout distance
-    // decisions are logged inside HealthSyncCore via developer.log.
-    if (window.workouts.isNotEmpty) {
+    // bugs only show when data DOES come through).
+    if (distanceDiags.isNotEmpty) {
       developer.log(
-        'Distance diagnostics (${window.workouts.length} workouts): '
+        'Distance diagnostics (${distanceDiags.length} workouts): '
         'total DISTANCE_DELTA records=${window.distanceDeltas.length}',
         name: 'HealthImport',
       );
@@ -176,7 +177,7 @@ class HealthImportService {
             'type': 'distance_debug',
             'raw_distances': window.distanceDeltas.length,
             'raw_workouts': window.workouts.length,
-            'per_workout': <Map<String, dynamic>>[],
+            'per_workout': distanceDiags,
           },
         });
       } catch (_) {
