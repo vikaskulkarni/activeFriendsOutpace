@@ -1,9 +1,8 @@
 import 'dart:developer' as developer;
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-
 import 'package:activefriends/data/local/app_database.dart';
+import 'package:activefriends/features/import/data/health_sync_core.dart';
 import 'package:activefriends/features/import/data/local_import_repository.dart';
 import 'package:health/health.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -50,36 +49,13 @@ class HealthImportService {
   final SupabaseClient _client;
   final LocalImportRepository _localRepository;
 
-  // Types we actually READ and surface in the import.
-  // DISTANCE_DELTA is read on Android so we can compute per-source distance
-  // and avoid double-counting when multiple apps (Garmin + phone pedometer)
-  // write DistanceRecords for the same time window.
-  // ⚠️ DISTANCE_DELTA is Android-only in the health package — it has no iOS
-  // HealthKit mapping. Passing it to getHealthDataFromTypes on iOS causes the
-  // plugin to return FlutterError(INVALID_TYPE), which kills the entire read
-  // (including WORKOUT and HEART_RATE). On iOS we fall back to the workout's
-  // built-in totalDistance instead.
-  static final _readTypes = [
-    HealthDataType.WORKOUT,
-    HealthDataType.HEART_RATE,
-    if (Platform.isAndroid) HealthDataType.DISTANCE_DELTA,
-  ];
-
-  // Types we must hold READ permission for. When the health package reads a
-  // WORKOUT (ExerciseSessionRecord) on Android it internally reads
-  // DistanceRecord, TotalCaloriesBurnedRecord and StepsRecord for the session
-  // window to compute totals (HealthDataReader.handleWorkoutData). Health
-  // Connect throws a SecurityException if we lack permission for ANY of them,
-  // and the package swallows it and returns an EMPTY list — which looked like
-  // "0 workouts". health 13.0.0 stopped auto-requesting DISTANCE_DELTA /
-  // TOTAL_CALORIES_BURNED alongside WORKOUT, so they must be requested here.
-  static const _authTypes = [
-    HealthDataType.WORKOUT,
-    HealthDataType.HEART_RATE,
-    HealthDataType.DISTANCE_DELTA,
-    HealthDataType.TOTAL_CALORIES_BURNED,
-    HealthDataType.STEPS,
-  ];
+  // Shared read/transform/upsert logic. The manual import and the future
+  // background auto-sync path call the SAME core functions.
+  late final HealthSyncCore _core = HealthSyncCore(
+    health: _health,
+    client: _client,
+    localRepository: _localRepository,
+  );
 
   Future<HealthImportResult> importRecentWorkouts() async {
     await _health.configure();
@@ -97,8 +73,9 @@ class HealthImportService {
     // READ_WRITE when permissions is omitted, but the Android manifest only
     // declares READ_* permissions — Health Connect denies the request.
     final authorized = await _health.requestAuthorization(
-      _authTypes,
-      permissions: _authTypes.map((_) => HealthDataAccess.READ).toList(),
+      HealthSyncCore.authTypes,
+      permissions:
+          HealthSyncCore.authTypes.map((_) => HealthDataAccess.READ).toList(),
     );
     if (!authorized) {
       throw HealthImportException(
@@ -125,7 +102,7 @@ class HealthImportService {
     }
 
     final source = Platform.isIOS ? 'healthkit' : 'health_connect';
-    await _syncPendingActivities();
+    await _core.syncPendingActivities();
     // Always rescan the full lookback window. A forward-only watermark
     // permanently skips activities that a watch syncs into Health Connect
     // LATE with their original (earlier) timestamps — the #1 cause of
@@ -133,159 +110,44 @@ class HealthImportService {
     // The upsert on (user_id, source, external_id) dedups the rescan, so
     // re-reading already-imported sessions is harmless.
     final importStart = start;
-    final incrementalData = await _health.getHealthDataFromTypes(
-      startTime: importStart,
-      endTime: now,
-      types: _readTypes,
-    );
-    final incrementalHeartRates = incrementalData
-        .where((point) => point.type == HealthDataType.HEART_RATE)
-        .toList();
-    final incrementalWorkouts = incrementalData
-        .where((point) => point.type == HealthDataType.WORKOUT)
-        .toList();
-    final incrementalDistances = incrementalData
-        .where((point) => point.type == HealthDataType.DISTANCE_DELTA)
-        .toList();
-
-    // Fetch external_ids already in Supabase so we can distinguish truly new
-    // imports from re-syncs of the same activity (the full-window rescan
-    // intentionally re-reads everything to catch late-syncing watches).
-    // If this lookup fails (offline / Supabase down), fall back to an empty
-    // set — every activity counts as "new", which matches the old behaviour
-    // and avoids blocking the import entirely.
-    var existingIds = <String>{};
-    try {
-      final existingRows = await _client
-          .from('activities')
-          .select('external_id')
-          .eq('user_id', user.id)
-          .eq('source', source)
-          .gte('started_at', importStart.toUtc().toIso8601String())
-          .lte('started_at', now.toUtc().toIso8601String());
-      existingIds = <String>{
-        for (final row in existingRows as List<dynamic>)
-          if (row['external_id'] != null) row['external_id'] as String,
-      };
-    } catch (_) {
-      // Network failure — proceed with empty set (old behaviour).
-    }
+    final window = await _core.readWorkouts(from: importStart, to: now);
+    final existingIds =
+        await _core.existingExternalIds(user.id, source, importStart, now);
 
     var importedCount = 0;
     var queuedCount = 0;
     var skippedCount = 0;
     var alreadySyncedCount = 0;
     var nonWorkoutValues = 0;
-    final distanceDiags = <Map<String, dynamic>>[];
-    for (final workout in incrementalWorkouts) {
-      final value = workout.value;
-      if (value is! WorkoutHealthValue) {
+    for (final workout in window.workouts) {
+      // Pre-filter non-workout values here so they are reflected in the
+      // diagnostics below (the core guards against them too, but does not
+      // surface a count). WORKOUT points practically always carry a
+      // WorkoutHealthValue, so this is effectively always 0.
+      if (workout.value is! WorkoutHealthValue) {
         nonWorkoutValues++;
         continue;
       }
-
-      // ── Cross-source dedup: skip imports that overlap with Outpace GPS ──
-      // If the user tracked from Outpace AND their watch simultaneously,
-      // the Outpace GPS activity is the primary record (has map route).
-      // The import is redundant — skip it entirely so it never appears
-      // in the feed and doesn't double-count points.
-      final workoutType = _mapActivityType(value.workoutActivityType);
-      if (await _overlapsOutpaceActivity(
+      final outcome = await _core.syncSingleActivity(
         userId: user.id,
-        start: workout.dateFrom.toUtc(),
-        end: workout.dateTo.toUtc(),
-      )) {
-        skippedCount++;
-        continue;
-      }
-
-      final heartRates = incrementalHeartRates
-          .where(
-            (sample) =>
-                !sample.dateFrom.isBefore(workout.dateFrom) &&
-                !sample.dateFrom.isAfter(workout.dateTo),
-          )
-          .map((sample) => sample.value)
-          .whereType<NumericHealthValue>()
-          .map((sample) => sample.numericValue.toInt())
-          .toList();
-      // ── Source-aware distance ─────────────────────────────────────
-      // Health Connect's totalDistance sums ALL DistanceRecord entries
-      // in the workout window regardless of source. If Garmin AND the
-      // phone pedometer both write distance records, the result is
-      // inflated by 10-20%. Fix: sum only the DISTANCE_DELTA records
-      // from the same sourceId as the workout itself. Fall back to
-      // totalDistance when no per-source records are available (iOS /
-      // older data).
-      final distResult = _computeSourceAwareDistance(
+        source: source,
         workout: workout,
-        distanceRecords: incrementalDistances,
-        fallback: value.totalDistance?.toDouble(),
+        window: window,
+        existingExternalIds: existingIds,
       );
-      final sourceAwareDistance = distResult.distance;
-      distanceDiags.add({
-        'type': workoutType,
-        'started_at': workout.dateFrom.toUtc().toIso8601String(),
-        'uuid': workout.uuid,
-        ...distResult.diag,
-      });
-
-      final activity = <String, dynamic>{
-        'user_id': user.id,
-        'type': workoutType,
-        'started_at': workout.dateFrom.toUtc().toIso8601String(),
-        'ended_at': workout.dateTo.toUtc().toIso8601String(),
-        'distance_m': sourceAwareDistance?.round(),
-        // The health Flutter package does not expose moving/active time —
-        // Health Connect's ExerciseSessionRecord has no activeDuration field
-        // and the plugin doesn't read ExerciseSegments. Setting moving_time_s
-        // to the wall-clock duration was WRONG: Datta's 3h walk showed
-        // "Moving time: 3h" when real moving time was 1h 6m (from Garmin).
-        // Leave moving_time_s null so the card shows only elapsed time and
-        // calculates pace from elapsed (honest, if slightly conservative).
-        'moving_time_s': null,
-        'elapsed_s': workout.dateTo.difference(workout.dateFrom).inSeconds,
-        'avg_hr': heartRates.isEmpty
-            ? null
-            : (heartRates.reduce((sum, rate) => sum + rate) / heartRates.length)
-                  .round(),
-        'max_hr': heartRates.isEmpty
-            ? null
-            : heartRates.reduce(
-                (current, rate) => current > rate ? current : rate,
-              ),
-        'calories': value.totalEnergyBurned?.round(),
-        'source': source,
-        'external_id': workout.uuid,
-        'status': 'pending',
-      };
-      await _localRepository.cacheActivity(activity, syncStatus: 'pending');
-      // Local same-source dedup (belt-and-suspenders): checks against the
-      // on-device cache for overlapping activities from the same source.
-      // If the cache is stale (app reinstalled / cleared), this may miss a
-      // duplicate — but the Supabase upsert on (user_id, source, external_id)
-      // is the authoritative safety net and prevents actual data corruption.
-      final duplicate = await _localRepository.flagDuplicateIfNeeded(activity);
-      if (duplicate != null) {
-        activity['review_state'] = 'needs_review';
-        activity['dup_group_id'] = duplicate.groupId;
-        await _localRepository.cacheActivity(activity, syncStatus: 'pending');
-        await _syncActivity(duplicate.candidatePayload);
-      }
-      final isNew = !existingIds.contains(workout.uuid);
-      try {
-        if (await _syncActivity(activity)) {
-          await _localRepository.markSynced(activity);
-        } else {
-          if (isNew) queuedCount++;
-        }
-        if (isNew) {
+      switch (outcome) {
+        case SyncOutcome.imported:
           importedCount++;
-        } else {
+        case SyncOutcome.queued:
+          // A new activity whose upsert was queued offline. The original
+          // manual path counted such workouts as BOTH imported and queued,
+          // so preserve that exact behaviour here.
+          queuedCount++;
+          importedCount++;
+        case SyncOutcome.skippedOverlap:
+          skippedCount++;
+        case SyncOutcome.alreadySynced:
           alreadySyncedCount++;
-        }
-      } catch (_) {
-        rethrow;
       }
     }
 
@@ -298,11 +160,12 @@ class HealthImportService {
     // ── Always-on distance diagnostics ──────────────────────────────────
     // Persisted on every import so we can diagnose source-aware distance
     // decisions even when workouts import successfully (doubled-distance
-    // bugs only show when data DOES come through).
-    if (distanceDiags.isNotEmpty) {
+    // bugs only show when data DOES come through). Per-workout distance
+    // decisions are logged inside HealthSyncCore via developer.log.
+    if (window.workouts.isNotEmpty) {
       developer.log(
-        'Distance diagnostics (${distanceDiags.length} workouts): '
-        'total DISTANCE_DELTA records=${incrementalDistances.length}',
+        'Distance diagnostics (${window.workouts.length} workouts): '
+        'total DISTANCE_DELTA records=${window.distanceDeltas.length}',
         name: 'HealthImport',
       );
       try {
@@ -311,9 +174,9 @@ class HealthImportService {
           'platform': Platform.isIOS ? 'ios' : 'android',
           'payload': {
             'type': 'distance_debug',
-            'raw_distances': incrementalDistances.length,
-            'raw_workouts': incrementalWorkouts.length,
-            'per_workout': distanceDiags,
+            'raw_distances': window.distanceDeltas.length,
+            'raw_workouts': window.workouts.length,
+            'per_workout': <Map<String, dynamic>>[],
           },
         });
       } catch (_) {
@@ -330,7 +193,7 @@ class HealthImportService {
     var diagnostics = '';
     if (importedCount == 0 && skippedCount == 0 && alreadySyncedCount == 0) {
       final perms = <String, String>{};
-      for (final t in _authTypes) {
+      for (final t in HealthSyncCore.authTypes) {
         try {
           final has = await _health.hasPermissions(
             [t],
@@ -356,10 +219,10 @@ class HealthImportService {
         probeError = e.toString();
       }
 
-      final sample = incrementalWorkouts.isEmpty
+      final sample = window.workouts.isEmpty
           ? 'none'
-          : '${incrementalWorkouts.first.value.runtimeType} '
-                'uuid=${incrementalWorkouts.first.uuid}';
+          : '${window.workouts.first.value.runtimeType} '
+                'uuid=${window.workouts.first.uuid}';
 
       final diag = <String, dynamic>{
         'platform': Platform.isIOS ? 'ios' : 'android',
@@ -369,10 +232,12 @@ class HealthImportService {
         'permissions': perms,
         'window_start': importStart.toIso8601String(),
         'window_end': now.toIso8601String(),
-        'raw_total': incrementalData.length,
-        'raw_workouts': incrementalWorkouts.length,
-        'raw_distances': incrementalDistances.length,
-        'raw_heart_rates': incrementalHeartRates.length,
+        'raw_total': window.workouts.length +
+            window.heartRates.length +
+            window.distanceDeltas.length,
+        'raw_workouts': window.workouts.length,
+        'raw_distances': window.distanceDeltas.length,
+        'raw_heart_rates': window.heartRates.length,
         'non_workout_values': nonWorkoutValues,
         'skipped_duplicates': skippedCount,
         'imported': importedCount,
@@ -393,239 +258,6 @@ class HealthImportService {
       historyAuthorized: historyAuthorized,
       diagnostics: diagnostics,
     );
-  }
-
-  Future<void> _syncPendingActivities() async {
-    for (final pending in await _localRepository.pendingSyncs()) {
-      final activity = _localRepository.decodePayload(pending);
-      try {
-        await _client
-            .from('activities')
-            .upsert(activity, onConflict: 'user_id,source,external_id');
-        await _localRepository.markSynced(activity);
-        await _localRepository.removePendingSync(pending.id);
-      } catch (_) {
-        continue;
-      }
-    }
-  }
-
-  Future<bool> _syncActivity(Map<String, dynamic> activity) async {
-    try {
-      await _client
-          .from('activities')
-          .upsert(activity, onConflict: 'user_id,source,external_id');
-      return true;
-    } catch (_) {
-      await _localRepository.queueActivity(activity);
-      return false;
-    }
-  }
-
-  /// Returns true if [start]–[end] overlaps an existing Outpace GPS activity
-  /// for the same user by more than 70% of the shorter activity's duration.
-  /// This prevents imports from HealthKit / Health Connect from creating
-  /// duplicates when the user tracked from both Outpace and their watch
-  /// simultaneously.
-  ///
-  /// The check is **type-agnostic**: a walk in Outpace and a "mixed cardio"
-  /// import from the watch ARE the same activity if the time windows overlap.
-  /// Earlier versions required an exact type match, which caused duplicates
-  /// when the watch auto-classified the activity differently.
-  Future<bool> _overlapsOutpaceActivity({
-    required String userId,
-    required DateTime start,
-    required DateTime end,
-  }) async {
-    // Widen the query window by ±2 minutes to catch activities where the
-    // watch and phone were started/stopped a few seconds apart.
-    final windowStart = start.subtract(const Duration(minutes: 2));
-    final windowEnd = end.add(const Duration(minutes: 2));
-
-    // Query ALL Outpace GPS activities (any type) that overlap the window.
-    final response = await _client
-        .from('activities')
-        .select('started_at, ended_at')
-        .eq('user_id', userId)
-        .eq('source', 'phone_gps')
-        .lte('started_at', windowEnd.toIso8601String())
-        .gte('ended_at', windowStart.toIso8601String());
-
-    final candidates = response as List<dynamic>;
-    if (candidates.isEmpty) return false;
-
-    final importDuration = end.difference(start).inSeconds;
-    if (importDuration <= 0) return false;
-
-    for (final row in candidates) {
-      final gpsStart = DateTime.parse(row['started_at'] as String);
-      final gpsEnd = DateTime.parse(row['ended_at'] as String);
-      final gpsDuration = gpsEnd.difference(gpsStart).inSeconds;
-      if (gpsDuration <= 0) continue;
-
-      // Calculate overlap using the ORIGINAL (non-widened) timestamps.
-      final overlapStart = start.isAfter(gpsStart) ? start : gpsStart;
-      final overlapEnd = end.isBefore(gpsEnd) ? end : gpsEnd;
-      final overlapSecs = overlapEnd.difference(overlapStart).inSeconds;
-      if (overlapSecs <= 0) continue;
-
-      // 70% threshold (was 80%) — more forgiving when the watch and phone
-      // disagree on exact start/stop times.
-      final shorterDuration =
-          importDuration < gpsDuration ? importDuration : gpsDuration;
-      if (overlapSecs / shorterDuration > 0.7) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// Compute distance for a workout, using the workout's own `totalDistance`
-  /// (fallback) as the primary value, with overlap detection as a safety net.
-  ///
-  /// Previous approach tried to pick one source's DISTANCE_DELTA records,
-  /// but this broke Samsung Health imports where two sources (Samsung Health
-  /// + phone step counter) write COMPLEMENTARY (not duplicate) distance
-  /// records — each covering ~50% of the real distance.
-  ///
-  /// New strategy (v2):
-  /// 1. Default to `totalDistance` from the workout — this is what Health
-  ///    Connect computes internally and is correct for most devices.
-  /// 2. Only override when we detect temporal overlap in a SINGLE source
-  ///    bucket (all sourceIds/sourceNames collapse to one key), which
-  ///    indicates true duplication (e.g. Garmin + phone pedometer both
-  ///    writing identical DistanceRecords with empty sourceId). In that
-  ///    case, halve the distance.
-  /// 3. Still collect per-source diagnostics for debugging.
-  ({double? distance, Map<String, dynamic> diag}) _computeSourceAwareDistance({
-    required HealthDataPoint workout,
-    required List<HealthDataPoint> distanceRecords,
-    required double? fallback,
-  }) {
-    // Filter to records within the workout window.
-    final windowRecords = distanceRecords.where((d) {
-      return !d.dateFrom.isBefore(workout.dateFrom) &&
-          !d.dateTo.isAfter(
-            workout.dateTo.add(const Duration(seconds: 30)),
-          );
-    }).toList();
-
-    if (windowRecords.isEmpty) {
-      return (
-        distance: fallback,
-        diag: <String, dynamic>{
-          'decision': 'fallback_no_window_records',
-          'total_distance_records': distanceRecords.length,
-          'window_records': 0,
-          'fallback_m': fallback,
-          'workout_source': workout.sourceId,
-          'workout_sourceName': workout.sourceName,
-        },
-      );
-    }
-
-    // ── Determine source key ──────────────────────────────────────────
-    String sourceKey(HealthDataPoint p) {
-      if (p.sourceId.isNotEmpty) return p.sourceId;
-      if (p.sourceName.isNotEmpty) return 'name:${p.sourceName}';
-      return '';
-    }
-
-    // Group by source key and sum distance per source (for diagnostics).
-    final distanceBySource = <String, double>{};
-    for (final record in windowRecords) {
-      final value = record.value;
-      if (value is NumericHealthValue) {
-        final key = sourceKey(record);
-        distanceBySource[key] =
-            (distanceBySource[key] ?? 0) + value.numericValue.toDouble();
-      }
-    }
-
-    if (distanceBySource.isEmpty) {
-      return (
-        distance: fallback,
-        diag: <String, dynamic>{
-          'decision': 'fallback_no_numeric',
-          'window_records': windowRecords.length,
-          'fallback_m': fallback,
-          'workout_source': workout.sourceId,
-          'workout_sourceName': workout.sourceName,
-        },
-      );
-    }
-
-    final sourceNames = windowRecords.map((r) => r.sourceName).toSet();
-    final ownerKey = sourceKey(workout);
-
-    // ── Pick the authoritative source ──────────────────────────────────
-    // Health Connect's `totalDistance` SUMS every source's DistanceRecords.
-    // For walk/run the phone's own Health Connect aggregator
-    // (com.android.healthconnect.phone.*) writes a parallel duplicate of the
-    // watch's distance, so that sum — and thus totalDistance — is ~2x the real
-    // distance. The authoritative value is the single device that owns the
-    // workout, never the cross-source sum. A prior "cleanup" (commit ceb118c)
-    // regressed this to `fallback`/totalDistance, which is exactly what
-    // doubled Garmin / Samsung Health / HealthSync walk & run imports.
-    final result = chooseSourceAwareDistance(
-      distanceBySource: distanceBySource,
-      ownerKey: ownerKey,
-      fallback: fallback,
-    );
-
-    developer.log(
-      'sourceAwareDist: ${result.decision} '
-      'chosen=${result.distance?.round()}m owner=$ownerKey '
-      'fallback=${fallback?.round()}m '
-      'sources=${distanceBySource.map((k, v) => MapEntry(k, v.round()))}',
-      name: 'HealthImport',
-    );
-
-    return (
-      distance: result.distance,
-      diag: <String, dynamic>{
-        'decision': result.decision,
-        'workout_source': workout.sourceId,
-        'workout_sourceName': workout.sourceName,
-        'source_key': ownerKey,
-        'all_sources': distanceBySource.map((k, v) => MapEntry(k, v.round())),
-        'distinct_sourceNames': sourceNames.toList(),
-        'chosen_m': result.distance?.round(),
-        'fallback_m': fallback,
-      },
-    );
-  }
-
-  /// Pick the authoritative distance from per-source DISTANCE_DELTA sums.
-  ///
-  /// Rules (restored after the `ceb118c` "cleanup" regression that summed all
-  /// sources via `totalDistance` and doubled walk/run imports):
-  ///   • Prefer the workout owner's own source — one device's own total is
-  ///     authoritative and never double-counts.
-  ///   • If the owner wrote no in-window records, use the largest single
-  ///     source (the device that tracked the full session).
-  ///   • NEVER sum across sources: the phone's Health Connect aggregator
-  ///     (`com.android.healthconnect.phone.*`) duplicates the watch's distance,
-  ///     so summing (i.e. `totalDistance`) ~doubles walk/run distance.
-  ///
-  /// `distanceBySource` maps a source key to its summed in-window distance (m).
-  /// `ownerKey` is the workout's own source key. `fallback` is the workout's
-  /// `totalDistance`, used only when there are no per-source records at all.
-  @visibleForTesting
-  static ({double? distance, String decision}) chooseSourceAwareDistance({
-    required Map<String, double> distanceBySource,
-    required String ownerKey,
-    required double? fallback,
-  }) {
-    if (distanceBySource.isEmpty) {
-      return (distance: fallback, decision: 'fallback_no_sources');
-    }
-    final ownerDistance = distanceBySource[ownerKey];
-    if (ownerDistance != null) {
-      return (distance: ownerDistance, decision: 'source_match');
-    }
-    final largest = distanceBySource.values.reduce((a, b) => a > b ? a : b);
-    return (distance: largest, decision: 'largest_source');
   }
 
   /// Human-readable Health Connect status, appended to error messages so the
@@ -673,18 +305,6 @@ class HealthImportService {
         'probe(365d workouts)=${d['probe_workouts_365d']}'
         '${probeErr != null ? ' probeErr=$probeErr' : ''}\n'
         'sample: ${d['first_workout_sample']}';
-  }
-
-  String _mapActivityType(HealthWorkoutActivityType type) {    return switch (type) {
-      HealthWorkoutActivityType.RUNNING ||
-      HealthWorkoutActivityType.RUNNING_TREADMILL => 'run',
-      HealthWorkoutActivityType.WALKING => 'walk',
-      HealthWorkoutActivityType.BIKING => 'cycle',
-      HealthWorkoutActivityType.FUNCTIONAL_STRENGTH_TRAINING ||
-      HealthWorkoutActivityType.TRADITIONAL_STRENGTH_TRAINING ||
-      HealthWorkoutActivityType.STRENGTH_TRAINING => 'strength',
-      _ => 'other',
-    };
   }
 }
 
