@@ -140,6 +140,7 @@ class AutoSyncPlatform {
       await Workmanager().registerOneOffTask(
         'healthSyncOnce',
         kHealthSyncTask,
+        existingWorkPolicy: ExistingWorkPolicy.keep,
         constraints: Constraints(networkType: NetworkType.connected),
       );
     } else if (Platform.isIOS) {
@@ -150,6 +151,7 @@ class AutoSyncPlatform {
   Future<void> _teardown() async {
     if (Platform.isAndroid) {
       await Workmanager().cancelByUniqueName(kHealthSyncTask);
+      await Workmanager().cancelByUniqueName('healthSyncOnce');
     } else if (Platform.isIOS) {
       await _channel.invokeMethod('disableBackgroundDelivery');
     }
