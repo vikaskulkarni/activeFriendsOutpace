@@ -116,77 +116,76 @@ class BackgroundSyncService {
     final localRepository = _localRepository!;
     final syncStateRepository = _syncStateRepository!;
 
-    // ── Plans 2/3 integration notes (NOT implemented here) ──────────────────
-    // When Plans 2 (iOS HKAnchoredObjectQuery) and 3 (Android health.getChanges)
-    // wire the real background sync run, they MUST:
-    //   (a) Pre-filter non-WorkoutHealthValue points before calling
-    //       `core.syncSingleActivity`, the same way the manual path does.
-    //       Without pre-filtering, non-workout values reach syncSingleActivity
-    //       and are returned as SyncOutcome.skippedOverlap, causing the skipped
-    //       count to be inflated and the imported count to be understated.
-    //   (b) Call `_health.configure()` + request authorization BEFORE calling
-    //       `core.readWorkouts`. The manual path does this; `readWorkouts` assumes
-    //       authorization has already been granted and will silently return an
-    //       empty list (or throw) if it has not.
-    // ────────────────────────────────────────────────────────────────────────
-
     final source = Platform.isIOS ? 'healthkit' : 'health_connect';
 
-    // 1. Drain pending offline syncs.
-    await core.syncPendingActivities();
-
-    // 2. Full 30-day rescan window (delta narrowing added in Plans 2/3).
-    final now = DateTime.now();
-    final from = now.subtract(const Duration(days: 30));
-
-    // 3. Read window + upsert each via the SAME core functions as manual import.
-    final window = await core.readWorkouts(from: from, to: now);
-    final existingIds =
-        await core.existingExternalIds(userId, source, from, now);
-    final changedIds = await _resolveChangedIds(userId, source); // null ⇒ all
-    // Same-activity dedup: skip workouts that duplicate an already-imported
-    // activity (Apple Watch + Strava re-exports under new UUIDs). Keeps first.
-    final duplicateSkipIds = await core.duplicateSkipIdsForWindow(
-      userId: userId,
-      source: source,
-      window: window,
-      from: from,
-      to: now,
-    );
-
-    var imported = 0, skipped = 0, queued = 0;
-    for (final workout in window.workouts) {
-      if (changedIds != null && !changedIds.contains(workout.uuid)) continue;
-      if (duplicateSkipIds.contains(workout.uuid)) {
-        skipped++;
-        continue;
-      }
-      switch (await core.syncSingleActivity(
-        userId: userId,
-        source: source,
-        workout: workout,
-        window: window,
-        existingExternalIds: existingIds,
-      )) {
-        case SyncOutcome.imported:
-          imported++;
-        case SyncOutcome.skippedOverlap:
-          skipped++;
-        case SyncOutcome.queued:
-          queued++;
-        case SyncOutcome.alreadySynced:
-          break;
-      }
+    // Authorize before any read (readWorkouts assumes it already ran).
+    if (!await core.ensureAuthorized()) {
+      return const BackgroundSyncResult.skippedReason('unauthorized');
     }
 
-    // 4. Watermark (single system) + run status.
-    await localRepository.saveWatermark(
-        userId: userId, source: source, importedThrough: now);
-    await syncStateRepository.recordSyncAttempt(
-        userId: userId, source: source, success: true);
+    try {
+      // 1. Drain pending offline syncs.
+      await core.syncPendingActivities();
 
-    return BackgroundSyncResult(
-        imported: imported, skipped: skipped, queued: queued);
+      // 2. Full 30-day rescan window. Android narrows to changed workouts via
+      //    the Changes API; iOS always rescans (idempotent dedup).
+      final now = DateTime.now();
+      final from = now.subtract(const Duration(days: 30));
+
+      final window = await core.readWorkouts(from: from, to: now);
+      final existingIds =
+          await core.existingExternalIds(userId, source, from, now);
+      final changedIds = await _resolveChangedIds(userId, source); // null ⇒ all
+      final duplicateSkipIds = await core.duplicateSkipIdsForWindow(
+        userId: userId,
+        source: source,
+        window: window,
+        from: from,
+        to: now,
+      );
+
+      var imported = 0, skipped = 0, queued = 0;
+      for (final workout in window.workouts) {
+        // Pre-filter non-workout values like the manual path, so they never
+        // inflate the skipped count.
+        if (workout.value is! WorkoutHealthValue) continue;
+        if (changedIds != null && !changedIds.contains(workout.uuid)) continue;
+        if (duplicateSkipIds.contains(workout.uuid)) {
+          skipped++;
+          continue;
+        }
+        switch (await core.syncSingleActivity(
+          userId: userId,
+          source: source,
+          workout: workout,
+          window: window,
+          existingExternalIds: existingIds,
+        )) {
+          case SyncOutcome.imported:
+            imported++;
+          case SyncOutcome.skippedOverlap:
+            skipped++;
+          case SyncOutcome.queued:
+            queued++;
+          case SyncOutcome.alreadySynced:
+            break;
+        }
+      }
+
+      await localRepository.saveWatermark(
+          userId: userId, source: source, importedThrough: now);
+      await syncStateRepository.recordSyncAttempt(
+          userId: userId, source: source, success: true);
+
+      return BackgroundSyncResult(
+          imported: imported, skipped: skipped, queued: queued);
+    } catch (_) {
+      // Record the failure so backoff (Task 6) can throttle, then rethrow so
+      // WorkManager retries with its own backoff.
+      await syncStateRepository.recordSyncAttempt(
+          userId: userId, source: source, success: false);
+      rethrow;
+    }
   }
 
   /// Platform delta source. Returning null means "process every workout in the

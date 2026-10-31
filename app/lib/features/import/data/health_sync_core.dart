@@ -83,6 +83,25 @@ class HealthSyncCore {
     HealthDataType.STEPS,
   ];
 
+  /// Configure HealthKit/Health Connect and request READ-only authorization for
+  /// [authTypes], plus Android health-history access. Mirrors the sequence the
+  /// manual path runs before reading. Returns false if read permission is
+  /// denied (the caller should abort the run). Safe to call repeatedly.
+  Future<bool> ensureAuthorized() async {
+    await _health.configure();
+    final authorized = await _health.requestAuthorization(
+      authTypes,
+      permissions: authTypes.map((_) => HealthDataAccess.READ).toList(),
+    );
+    if (!authorized) return false;
+    if (Platform.isAndroid) {
+      if (!await _health.isHealthDataHistoryAuthorized()) {
+        await _health.requestHealthDataHistoryAuthorization();
+      }
+    }
+    return true;
+  }
+
   /// Read the raw health data for [from]–[to] and partition it by type.
   ///
   /// Assumes `Health.configure()` + authorization have already run (the manual
