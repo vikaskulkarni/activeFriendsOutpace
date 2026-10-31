@@ -219,6 +219,7 @@ class GpsTracker {
             speed: position.speed,
             latitude: position.latitude,
             longitude: position.longitude,
+            accuracy: position.accuracy,
             timestamp: position.timestamp,
           );
           final nowPaused = _pauseDetector.isPaused;
@@ -466,6 +467,7 @@ class AutoPauseDetector {
     required double speed,
     required double latitude,
     required double longitude,
+    required double accuracy,
     required DateTime timestamp,
   }) {
     final bool moving;
@@ -473,9 +475,14 @@ class AutoPauseDetector {
       // Hysteresis: higher bar to resume than to keep going.
       moving = _paused ? speed > resumeSpeedMs : speed >= pauseSpeedMs;
     } else {
+      // Displacement path: a fix looser than the accumulator's anchor limit is
+      // not trustworthy evidence of movement — its jitter can exceed
+      // [moveThresholdM] while standing still, which would wrongly keep us
+      // "moving" and never auto-pause. Mirror GpsDistanceAccumulator's gate.
       final anchorLat = _anchorLat;
       final anchorLon = _anchorLon;
-      moving = anchorLat != null &&
+      moving = accuracy <= GpsDistanceAccumulator.maxAnchorAccuracyM &&
+          anchorLat != null &&
           anchorLon != null &&
           GpsDistanceAccumulator._haversineM(
                   anchorLat, anchorLon, latitude, longitude) >
