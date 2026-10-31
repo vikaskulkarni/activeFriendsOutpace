@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:activefriends/data/local/app_database.dart';
+import 'package:activefriends/features/import/data/auto_sync_preferences.dart';
 import 'package:activefriends/features/import/data/feature_flag_service.dart';
 import 'package:activefriends/features/import/data/health_sync_core.dart';
 import 'package:activefriends/features/import/data/local_import_repository.dart';
@@ -59,13 +60,15 @@ class BackgroundSyncService {
     ChangesTokenFetcher? changesTokenFetcher,
     ChangesFetcher? changesFetcher,
     SyncNotifier? notifier,
+    AutoSyncPreferences? autoSyncPrefs,
   })  : _flags = flags,
         _core = core,
         _localRepository = localRepository,
         _syncStateRepository = syncStateRepository,
         _changesTokenFetcher = changesTokenFetcher, // ignore: prefer_initializing_formals
         _changesFetcher = changesFetcher, // ignore: prefer_initializing_formals
-        _notifier = notifier; // ignore: prefer_initializing_formals
+        _notifier = notifier, // ignore: prefer_initializing_formals
+        _autoSyncPrefs = autoSyncPrefs; // ignore: prefer_initializing_formals
 
   /// Factory for the WorkManager background isolate. Opens its OWN Drift
   /// connection — never `AppDatabase.shared`, which is uninitialised in a fresh
@@ -96,6 +99,42 @@ class BackgroundSyncService {
         );
       },
       notifier: SyncNotifier(plugin: FlutterLocalNotificationsPlugin()),
+      autoSyncPrefs: AutoSyncPreferences(),
+    );
+  }
+
+  /// Factory for the iOS HealthKit channel handler, which fires in the MAIN
+  /// isolate. Uses [AppDatabase.shared] so there is exactly ONE Drift
+  /// connection to the on-disk database — opening a second instance would
+  /// cause stale stream invalidation and potential write-lock contention with
+  /// GPS tracking.
+  factory BackgroundSyncService.forMainIsolate() {
+    final db = AppDatabase.shared;
+    final local = LocalImportRepository(db);
+    final health = Health();
+    return BackgroundSyncService(
+      flags: FeatureFlagService(),
+      core: HealthSyncCore(
+        health: health,
+        client: Supabase.instance.client,
+        localRepository: local,
+      ),
+      localRepository: local,
+      syncStateRepository: SyncStateRepository(db),
+      changesTokenFetcher: (types) => health.getChangesToken(types: types),
+      changesFetcher: (token) async {
+        final resp = await health.getChanges(changesToken: token);
+        if (resp == null) return null;
+        return ChangesDelta(
+          upsertedIds:
+              resp.upsertedDataPoints.map((p) => p.uuid).toSet(),
+          tokenExpired: resp.changesTokenExpired,
+          nextToken:
+              resp.nextChangesToken.isEmpty ? null : resp.nextChangesToken,
+        );
+      },
+      notifier: SyncNotifier(plugin: FlutterLocalNotificationsPlugin()),
+      autoSyncPrefs: AutoSyncPreferences(),
     );
   }
 
@@ -110,6 +149,7 @@ class BackgroundSyncService {
   final ChangesTokenFetcher? _changesTokenFetcher;
   final ChangesFetcher? _changesFetcher;
   final SyncNotifier? _notifier;
+  final AutoSyncPreferences? _autoSyncPrefs;
 
   Future<BackgroundSyncResult> syncIncremental({required String userId}) async {
     // 0. Remote kill switch. Fail-safe: disabled unless explicitly enabled.
@@ -195,8 +235,17 @@ class BackgroundSyncService {
       await syncStateRepository.recordSyncAttempt(
           userId: userId, source: source, success: true);
 
-      if (imported > 0) {
-        await _notifier?.showSynced(imported);
+      // Best-effort side effects: a notification plugin crash or SharedPreferences
+      // write failure must NEVER flip a successful import to a failure. These are
+      // isolated here so the outer catch (which records a failed attempt and
+      // rethrows for WorkManager retry) cannot be reached from this block.
+      try {
+        await _autoSyncPrefs?.setLastSuccess(now);
+        if (imported > 0) {
+          await _notifier?.showSynced(imported);
+        }
+      } catch (_) {
+        // best-effort: last-sync + notification must never fail a successful run
       }
 
       return BackgroundSyncResult(

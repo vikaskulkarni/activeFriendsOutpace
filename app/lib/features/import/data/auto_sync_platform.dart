@@ -74,7 +74,7 @@ class AutoSyncPlatform {
         if (call.method == 'onHealthDataChanged') {
           final user = Supabase.instance.client.auth.currentUser;
           if (user == null) return null;
-          await BackgroundSyncService.forBackgroundIsolate()
+          await BackgroundSyncService.forMainIsolate()
               .syncIncremental(userId: user.id);
         }
         return null;

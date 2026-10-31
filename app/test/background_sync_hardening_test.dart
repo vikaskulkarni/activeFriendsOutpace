@@ -93,6 +93,48 @@ void main() {
         .getSingleOrNull();
     expect(row?.consecutiveFailures, 1);
   });
+
+  test('non-workout value in workouts list is silently skipped (never counted or synced)',
+      () async {
+    final prefs = await SharedPreferences.getInstance();
+    // Construct a HealthDataPoint whose value is NumericHealthValue — NOT a
+    // WorkoutHealthValue. The syncIncremental pre-filter must `continue` past
+    // it without incrementing imported/skipped or calling syncSingleActivity.
+    final nonWorkoutPoint = HealthDataPoint(
+      uuid: 'non-workout-uuid',
+      value: NumericHealthValue(numericValue: 42),
+      type: HealthDataType.STEPS,
+      unit: HealthDataUnit.COUNT,
+      dateFrom: DateTime(2025),
+      dateTo: DateTime(2025),
+      sourcePlatform: HealthPlatformType.appleHealth,
+      sourceDeviceId: 'device',
+      sourceId: 'source',
+      sourceName: 'Test',
+    );
+    final core = _FakeCore(
+      window: WorkoutWindow(
+        workouts: [nonWorkoutPoint],
+        distanceDeltas: [],
+        heartRates: [],
+      ),
+    );
+    final svc = BackgroundSyncService(
+      flags: _flagOn(prefs),
+      core: core,
+      localRepository: LocalImportRepository(db),
+      syncStateRepository: SyncStateRepository(db),
+    );
+    final result = await svc.syncIncremental(userId: 'u');
+    // The non-workout point must not appear in any count and must never reach
+    // syncSingleActivity.
+    expect(result.imported, 0,
+        reason: 'non-workout point must not be imported');
+    expect(result.skipped, 0,
+        reason: 'non-workout point must not inflate skipped count');
+    expect(core.singleCalls, 0,
+        reason: 'syncSingleActivity must not be called for non-workout value');
+  });
 }
 
 class _ThrowingCore extends _FakeCore {
