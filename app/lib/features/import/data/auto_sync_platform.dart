@@ -6,6 +6,7 @@ import 'package:activefriends/features/import/data/auto_sync_manager.dart';
 import 'package:activefriends/features/import/data/auto_sync_preferences.dart';
 import 'package:activefriends/features/import/data/background_sync_service.dart';
 import 'package:activefriends/features/import/data/feature_flag_service.dart';
+import 'package:activefriends/features/import/data/health_sync_core.dart';
 import 'package:activefriends/firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/services.dart';
@@ -21,11 +22,14 @@ const kHealthSyncTask = 'healthSyncPeriodic';
 void callbackDispatcher() {
   Workmanager().executeTask((taskName, inputData) async {
     if (taskName != kHealthSyncTask) return true;
-    return _executeBackgroundHealthSync();
+    // 'periodic' | 'oneoff' — both register under the same taskName, so the
+    // trigger is carried in inputData (see _register).
+    final trigger = inputData?['trigger'] as String?;
+    return _executeBackgroundHealthSync(trigger: trigger);
   });
 }
 
-Future<bool> _executeBackgroundHealthSync() async {
+Future<bool> _executeBackgroundHealthSync({String? trigger}) async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -64,7 +68,7 @@ Future<bool> _executeBackgroundHealthSync() async {
     }
 
     await BackgroundSyncService.forBackgroundIsolate()
-        .syncIncremental(userId: user.id);
+        .syncIncremental(userId: user.id, trigger: trigger);
     return true;
   } catch (e) {
     developer.log('Background health sync failed: $e', name: 'HealthSync');
@@ -96,7 +100,7 @@ class AutoSyncPlatform {
           final user = Supabase.instance.client.auth.currentUser;
           if (user == null) return null;
           await BackgroundSyncService.forMainIsolate()
-              .syncIncremental(userId: user.id);
+              .syncIncremental(userId: user.id, trigger: 'ios_observer');
         }
         return null;
       });
@@ -118,6 +122,18 @@ class AutoSyncPlatform {
   Future<void> _register() async {
     if (Platform.isAndroid) {
       final health = Health();
+      await health.configure();
+      // Foreground grant. The background isolate's HealthSyncCore.ensureAuthorized
+      // only VERIFIES permission (it has no Activity to launch the Health Connect
+      // consent UI), so the READ grant must be requested HERE — _register runs
+      // with an Activity (app start / the enable toggle). This covers users who
+      // enable auto-sync without ever running a manual import (which has its own
+      // foreground request). No-ops silently if already granted.
+      await health.requestAuthorization(
+        HealthSyncCore.authTypes,
+        permissions:
+            HealthSyncCore.authTypes.map((_) => HealthDataAccess.READ).toList(),
+      );
       if (await health.isHealthDataInBackgroundAvailable() &&
           !await health.isHealthDataInBackgroundAuthorized()) {
         await health.requestHealthDataInBackgroundAuthorization();
@@ -127,6 +143,7 @@ class AutoSyncPlatform {
         kHealthSyncTask,
         kHealthSyncTask,
         frequency: const Duration(minutes: 15),
+        inputData: const {'trigger': 'periodic'},
         constraints: Constraints(
           networkType: NetworkType.connected,
           requiresBatteryNotLow: true,
@@ -140,6 +157,7 @@ class AutoSyncPlatform {
       await Workmanager().registerOneOffTask(
         'healthSyncOnce',
         kHealthSyncTask,
+        inputData: const {'trigger': 'oneoff'},
         existingWorkPolicy: ExistingWorkPolicy.keep,
         constraints: Constraints(networkType: NetworkType.connected),
       );

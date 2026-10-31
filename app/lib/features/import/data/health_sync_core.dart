@@ -83,23 +83,50 @@ class HealthSyncCore {
     HealthDataType.STEPS,
   ];
 
-  /// Configure HealthKit/Health Connect and request READ-only authorization for
-  /// [authTypes], plus Android health-history access. Mirrors the sequence the
-  /// manual path runs before reading. Returns false if read permission is
-  /// denied (the caller should abort the run). Safe to call repeatedly.
+  /// Verify (never request) READ authorization for the BACKGROUND path.
+  ///
+  /// Unlike the manual path, this runs in a context with no foreground
+  /// Activity (an Android WorkManager isolate), so it must NOT call
+  /// `requestAuthorization` / `requestHealthDataHistoryAuthorization` — those
+  /// try to launch the Health Connect consent UI and fail with "Permission
+  /// launcher not found", leaving the worker to report SUCCESS while importing
+  /// nothing. The grant is instead requested in the foreground when the user
+  /// enables auto-sync (see `AutoSyncPlatform._register`).
+  ///
+  /// Returns false only when we can positively tell the read will be denied:
+  ///   • Android: `hasPermissions(authTypes, READ)` is false (null ⇒ false).
+  ///   • iOS: never gated — HealthKit hides READ-permission status for privacy
+  ///     (`hasPermissions` returns null/false even when granted), so we let the
+  ///     read proceed (a granted read returns data; an ungranted one is empty).
+  /// Safe to call repeatedly.
   Future<bool> ensureAuthorized() async {
     await _health.configure();
-    final authorized = await _health.requestAuthorization(
+    if (!Platform.isAndroid) {
+      return resolveBackgroundAuthorization(
+        isAndroid: false,
+        androidHasPermissions: null,
+      );
+    }
+    final hasPermissions = await _health.hasPermissions(
       authTypes,
       permissions: authTypes.map((_) => HealthDataAccess.READ).toList(),
     );
-    if (!authorized) return false;
-    if (Platform.isAndroid) {
-      if (!await _health.isHealthDataHistoryAuthorized()) {
-        await _health.requestHealthDataHistoryAuthorization();
-      }
-    }
-    return true;
+    return resolveBackgroundAuthorization(
+      isAndroid: true,
+      androidHasPermissions: hasPermissions,
+    );
+  }
+
+  /// Pure background-authorization decision, extracted so the platform split is
+  /// unit-testable (`Platform.isAndroid` and the real `Health` plugin are not).
+  /// See [ensureAuthorized] for the semantics.
+  @visibleForTesting
+  static bool resolveBackgroundAuthorization({
+    required bool isAndroid,
+    required bool? androidHasPermissions,
+  }) {
+    if (!isAndroid) return true; // iOS: never gate on hasPermissions.
+    return androidHasPermissions ?? false;
   }
 
   /// Read the raw health data for [from]–[to] and partition it by type.

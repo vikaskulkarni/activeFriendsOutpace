@@ -29,4 +29,63 @@ void main() {
       ]);
     });
   });
+
+  // The BACKGROUND authorization check must VERIFY permission, never REQUEST
+  // it: requesting launches the Health Connect consent UI, which needs a
+  // foreground Activity absent in a WorkManager isolate ("Permission launcher
+  // not found"). This pure decision captures the platform split that
+  // `ensureAuthorized()` wires up.
+  group('resolveBackgroundAuthorization', () {
+    test('Android: granted permissions authorize the background read', () {
+      expect(
+        HealthSyncCore.resolveBackgroundAuthorization(
+          isAndroid: true,
+          androidHasPermissions: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('Android: missing permissions block the background read', () {
+      expect(
+        HealthSyncCore.resolveBackgroundAuthorization(
+          isAndroid: true,
+          androidHasPermissions: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('Android: null hasPermissions is treated as not granted', () {
+      expect(
+        HealthSyncCore.resolveBackgroundAuthorization(
+          isAndroid: true,
+          androidHasPermissions: null,
+        ),
+        isFalse,
+      );
+    });
+
+    test('iOS: never gated on hasPermissions (null still authorizes)', () {
+      // HealthKit hides READ-permission status for privacy, so hasPermissions
+      // returns null/false even when granted. Let the read proceed.
+      expect(
+        HealthSyncCore.resolveBackgroundAuthorization(
+          isAndroid: false,
+          androidHasPermissions: null,
+        ),
+        isTrue,
+      );
+    });
+
+    test('iOS: false hasPermissions still authorizes (not gated)', () {
+      expect(
+        HealthSyncCore.resolveBackgroundAuthorization(
+          isAndroid: false,
+          androidHasPermissions: false,
+        ),
+        isTrue,
+      );
+    });
+  });
 }
