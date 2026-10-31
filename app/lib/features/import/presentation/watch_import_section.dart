@@ -139,19 +139,13 @@ class _WatchImportSectionState extends State<WatchImportSection> {
             ),
           ],
         ),
-        Text(
-          _remoteAllowed
-              ? 'Automatically import new workouts when your watch syncs.'
-              : 'Auto-sync is currently unavailable.',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
         if (_lastSynced != null)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text('Last sync: ${_relative(_lastSynced!)}',
                 style: Theme.of(context).textTheme.bodySmall),
           ),
-        const Divider(height: 24),
+        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(child: Text('Health Connect or Apple Health', style: Theme.of(context).textTheme.bodyMedium)),

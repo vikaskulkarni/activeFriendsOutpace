@@ -5,9 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('defaults to disabled', () async {
+  test('defaults to enabled', () async {
     final prefs = await SharedPreferences.getInstance();
-    expect(await AutoSyncPreferences(prefs: prefs).isEnabled(), isFalse);
+    expect(await AutoSyncPreferences(prefs: prefs).isEnabled(), isTrue);
   });
 
   test('setEnabled round-trips', () async {

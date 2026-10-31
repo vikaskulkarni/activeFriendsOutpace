@@ -15,7 +15,7 @@ class AutoSyncPreferences {
   Future<SharedPreferences> get _p async =>
       _prefs ??= await SharedPreferences.getInstance();
 
-  Future<bool> isEnabled() async => (await _p).getBool(kEnabled) ?? false;
+  Future<bool> isEnabled() async => (await _p).getBool(kEnabled) ?? true;
 
   Future<void> setEnabled(bool value) async =>
       (await _p).setBool(kEnabled, value);
