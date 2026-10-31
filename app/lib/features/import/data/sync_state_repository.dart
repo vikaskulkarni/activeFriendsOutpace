@@ -64,6 +64,10 @@ class SyncStateRepository {
         );
   }
 
+  /// Read the current run-status row (or null), for the backoff gate.
+  Future<SyncState?> rowFor(String userId, String source) =>
+      _rowFor(userId, source).getSingleOrNull();
+
   Future<void> recordSyncAttempt(
       {required String userId,
       required String source,

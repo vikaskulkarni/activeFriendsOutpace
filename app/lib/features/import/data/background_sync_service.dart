@@ -111,6 +111,18 @@ class BackgroundSyncService {
       return const BackgroundSyncResult.skippedReason('flag_off');
     }
 
+    // Backoff throttle (§8.2). Read-only peek at the run-status row.
+    final backoffRow = await _syncStateRepository
+        ?.rowFor(userId, Platform.isIOS ? 'healthkit' : 'health_connect');
+    if (backoffRow != null &&
+        shouldSkipForBackoff(
+          consecutiveFailures: backoffRow.consecutiveFailures,
+          lastAttemptAt: backoffRow.lastAttemptAt,
+          now: DateTime.now(),
+        )) {
+      return const BackgroundSyncResult.skippedReason('backoff');
+    }
+
     // Flag passed → collaborators are required from here on.
     final core = _core!;
     final localRepository = _localRepository!;
@@ -186,6 +198,23 @@ class BackgroundSyncService {
           userId: userId, source: source, success: false);
       rethrow;
     }
+  }
+
+  /// Exponential backoff after repeated failures (§8.2). 0–2 failures never
+  /// skip; 3–9 skip for 2^(n-3) * 15 minutes since the last attempt; 10+ always
+  /// skip until a manual import resets `consecutiveFailures` to 0.
+  @visibleForTesting
+  static bool shouldSkipForBackoff({
+    required int consecutiveFailures,
+    required DateTime? lastAttemptAt,
+    required DateTime now,
+  }) {
+    if (consecutiveFailures < 3) return false;
+    if (consecutiveFailures >= 10) return true;
+    if (lastAttemptAt == null) return false;
+    final skipCycles = 1 << (consecutiveFailures - 3);
+    final backoffMinutes = skipCycles * 15;
+    return now.difference(lastAttemptAt).inMinutes < backoffMinutes;
   }
 
   /// Platform delta source. Returning null means "process every workout in the
