@@ -40,6 +40,7 @@ dependencies:
   sqlite3_flutter_libs: ^0.6.0+eol
   shared_preferences: ^2.5.5
   health: ^13.3.2
+  workmanager: ^0.6.0
   path_provider: ^2.1.6
   uuid: ^4.6.0
   share_plus: ^13.3.0
