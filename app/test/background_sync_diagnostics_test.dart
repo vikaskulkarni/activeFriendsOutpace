@@ -143,4 +143,44 @@ void main() {
     expect(result.skippedReason, isNull);
     expect(result.imported, 0);
   });
+
+  test('failure path: rethrows, records a failed attempt, and the diag row '
+      'carries the error', () async {
+    final prefs = await SharedPreferences.getInstance();
+    final rows = <Map<String, dynamic>>[];
+    final repo = SyncStateRepository(db);
+    final svc = BackgroundSyncService(
+      flags: _flags(prefs, enabled: true),
+      core: _ThrowingCore(),
+      localRepository: LocalImportRepository(db),
+      syncStateRepository: repo,
+      diagnosticsRecorder: (uid, payload) async => rows.add(payload),
+    );
+
+    // (a) The read failure propagates so WorkManager retries.
+    await expectLater(
+      svc.syncIncremental(userId: 'u1', trigger: 'periodic'),
+      throwsA(isA<StateError>()),
+    );
+
+    // (b) A failed attempt is recorded so backoff can throttle.
+    final row = await (db.select(db.syncStates)
+          ..where((r) => r.userId.equals('u1')))
+        .getSingleOrNull();
+    expect(row?.consecutiveFailures, 1);
+
+    // (c) The diagnostics row is still persisted and carries the error.
+    expect(rows, hasLength(1));
+    expect(rows.single['authorized'], true);
+    expect(rows.single['skipped_reason'], isNull);
+    expect(rows.single['error'], contains('read failed'));
+  });
+}
+
+class _ThrowingCore extends _FakeCore {
+  _ThrowingCore() : super(window: _emptyWindow, authorized: true);
+  @override
+  Future<WorkoutWindow> readWorkouts(
+          {required DateTime from, required DateTime to}) async =>
+      throw StateError('read failed');
 }
