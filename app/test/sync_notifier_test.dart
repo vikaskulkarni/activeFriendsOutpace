@@ -4,10 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 class _FakePlugin implements FlutterLocalNotificationsPlugin {
   final calls = <String>[];
+  NotificationDetails? lastDetails;
   @override
   Future<void> show(int id, String? title, String? body, dynamic details,
       {String? payload}) async {
     calls.add('$id|$title|$body');
+    if (details is NotificationDetails) lastDetails = details;
   }
   @override
   dynamic noSuchMethod(Invocation i) => null;
@@ -20,10 +22,11 @@ void main() {
     expect(p.calls, isEmpty);
   });
 
-  test('count 1 → singular copy', () async {
+  test('count 1 → singular copy, uses ic_sync_notification icon', () async {
     final p = _FakePlugin();
     await SyncNotifier(plugin: p).showSynced(1);
     expect(p.calls.single, contains('1 new activity imported'));
+    expect(p.lastDetails?.android?.icon, 'ic_sync_notification');
   });
 
   test('count 3 → plural copy, fixed id 42', () async {

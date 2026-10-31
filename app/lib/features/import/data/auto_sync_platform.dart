@@ -10,6 +10,7 @@ import 'package:activefriends/firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:health/health.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:workmanager/workmanager.dart';
@@ -40,6 +41,26 @@ Future<bool> _executeBackgroundHealthSync() async {
     if (!await FeatureFlagService().autoSyncEnabled()) {
       await Workmanager().cancelByUniqueName(kHealthSyncTask);
       return true;
+    }
+
+    // Initialize local notifications for this background isolate so
+    // SyncNotifier can post the "activities imported" banner.
+    try {
+      final fln = FlutterLocalNotificationsPlugin();
+      await fln.initialize(const InitializationSettings(
+        android: AndroidInitializationSettings('ic_notification'),
+      ));
+      await fln
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(const AndroidNotificationChannel(
+            'outpace_sync',
+            'Activity Sync',
+            description: 'Notifications when activities are auto-imported',
+            importance: Importance.low,
+          ));
+    } catch (e) {
+      developer.log('Notification setup failed: $e', name: 'HealthSync');
     }
 
     await BackgroundSyncService.forBackgroundIsolate()
@@ -113,6 +134,13 @@ class AutoSyncPlatform {
         existingWorkPolicy: ExistingWorkPolicy.keep,
         backoffPolicy: BackoffPolicy.exponential,
         initialDelay: const Duration(minutes: 1),
+      );
+      // Enqueue an immediate one-off run so the first sync + notification
+      // fire within seconds of the user enabling auto-sync.
+      await Workmanager().registerOneOffTask(
+        'healthSyncOnce',
+        kHealthSyncTask,
+        constraints: Constraints(networkType: NetworkType.connected),
       );
     } else if (Platform.isIOS) {
       await _channel.invokeMethod('enableBackgroundDelivery');

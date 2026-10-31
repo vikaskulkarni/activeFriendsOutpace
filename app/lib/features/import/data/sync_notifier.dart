@@ -24,6 +24,7 @@ class SyncNotifier {
               'Notifications when activities are auto-imported',
           importance: Importance.low,
           priority: Priority.low,
+          icon: 'ic_sync_notification',
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
