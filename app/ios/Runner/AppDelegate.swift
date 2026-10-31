@@ -114,16 +114,17 @@ import HealthKit
     let query = HKObserverQuery(sampleType: workoutType, predicate: nil) {
       [weak self] _, completionHandler, error in
       guard error == nil else { completionHandler(); return }
-      self?.triggerDartSync { completionHandler() }
+      guard let self = self else { completionHandler(); return }
+      self.triggerDartSync { completionHandler() }
     }
     healthStore.execute(query)
   }
 
   private func triggerDartSync(completion: @escaping () -> Void) {
-    DispatchQueue.main.async {
-      guard let channel = self.healthSyncChannel else { completion(); return }
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self, let channel = self.healthSyncChannel else { completion(); return }
       channel.invokeMethod("onHealthDataChanged", arguments: nil) { _ in
-        completion() // Apple requires the completion handler be called.
+        completion()
       }
     }
   }
