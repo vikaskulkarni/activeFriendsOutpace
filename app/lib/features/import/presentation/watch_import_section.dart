@@ -29,7 +29,7 @@ class _WatchImportSectionState extends State<WatchImportSection> {
 
   late final AutoSyncPreferences _prefs =
       widget._autoSyncPrefs ?? AutoSyncPreferences();
-  late final FeatureFlagService _flagsSvc = widget._flags ?? FeatureFlagService();
+  late final FeatureFlagService _flagsService = widget._flags ?? FeatureFlagService();
   bool _autoSyncOn = false;
   bool _remoteAllowed = false;
   DateTime? _lastSynced;
@@ -42,7 +42,7 @@ class _WatchImportSectionState extends State<WatchImportSection> {
 
   Future<void> _loadAutoSyncState() async {
     final on = await _prefs.isEnabled();
-    final remote = await _flagsSvc.autoSyncEnabled();
+    final remote = await _flagsService.autoSyncEnabled();
     final last = await _prefs.lastSuccess();
     if (mounted) {
       setState(() {
@@ -55,6 +55,7 @@ class _WatchImportSectionState extends State<WatchImportSection> {
 
   Future<void> _toggleAutoSync(bool value) async {
     await _prefs.setEnabled(value);
+    if (!mounted) return;
     setState(() => _autoSyncOn = value);
     final onToggle = widget._onToggle;
     if (onToggle != null) {
