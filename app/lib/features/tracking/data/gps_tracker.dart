@@ -93,10 +93,8 @@ class GpsTracker {
   GpsDistanceAccumulator _distanceAcc = GpsDistanceAccumulator();
   double _elevationGainM = 0;
   Duration _movingTime = Duration.zero;
-  DateTime? _belowPauseThresholdSince;
-  bool _autoPaused = false;
-  double _pauseThresholdMs = 0.7;
-  double _resumeThresholdMs = 1.4;
+  AutoPauseDetector _pauseDetector =
+      AutoPauseDetector(pauseSpeedMs: 0.7, resumeSpeedMs: 1.4);
   bool _manuallyPaused = false;
   String? _activeSessionId;
   int _acceptedFixes = 0;
@@ -113,7 +111,7 @@ class GpsTracker {
       startedAt: startedAt,
       elapsed: DateTime.now().difference(startedAt),
       movingTime: _movingTime,
-      isAutoPaused: _autoPaused,
+      isAutoPaused: _pauseDetector.isPaused,
       isManuallyPaused: _manuallyPaused,
       distanceM: _distanceAcc.distanceM,
       elevationGainM: _elevationGainM,
@@ -149,8 +147,11 @@ class GpsTracker {
     _startedAt = restoredSession?.startedAt ?? DateTime.now();
     _activeSessionId = sessionId;
     _manuallyPaused = false;
-    _pauseThresholdMs = activityType == 'walk' ? 0.5 : 0.7;
-    _resumeThresholdMs = activityType == 'walk' ? 0.8 : 1.4;
+    _pauseDetector = AutoPauseDetector(
+      pauseSpeedMs: activityType == 'walk' ? 0.5 : 0.7,
+      resumeSpeedMs: activityType == 'walk' ? 0.8 : 1.4,
+      initiallyPaused: restoredSession?.status == 'paused',
+    );
     _distanceAcc = GpsDistanceAccumulator(
       initialDistanceM: restoredSession?.distanceM ?? 0,
     );
@@ -175,8 +176,6 @@ class GpsTracker {
         ),
       );
     _previous = null;
-    _autoPaused = restoredSession?.status == 'paused';
-    _belowPauseThresholdSince = null;
     final LocationSettings settings;
     if (Platform.isIOS) {
       settings = AppleSettings(
@@ -210,20 +209,23 @@ class GpsTracker {
             return;
           }
           final previous = _previous;
-          final speed = position.speed.isFinite ? position.speed : 0;
-          if (!_autoPaused && speed < _pauseThresholdMs) {
-            _belowPauseThresholdSince ??= position.timestamp;
-            if (position.timestamp.difference(_belowPauseThresholdSince!) >=
-                const Duration(seconds: 20)) {
-              _autoPaused = true;
-              _distanceAcc.resetAnchor();
-              await _localRepository.updateStatus(sessionId, 'paused');
-            }
-          } else if (!_autoPaused && speed >= _pauseThresholdMs) {
-            _belowPauseThresholdSince = null;
-          } else if (_autoPaused && speed > _resumeThresholdMs) {
-            _autoPaused = false;
-            _belowPauseThresholdSince = null;
+          // Auto-pause via the detector: speed when the platform reports it
+          // (Android), net displacement when it doesn't (iOS withholds speed at
+          // walking pace → `hasSpeed == false`, a 0.0 placeholder that must NOT
+          // be read as "stopped" or it false-pauses mid-walk and drops distance).
+          final wasPaused = _pauseDetector.isPaused;
+          _pauseDetector.update(
+            speedKnown: position.hasSpeed && position.speed.isFinite,
+            speed: position.speed,
+            latitude: position.latitude,
+            longitude: position.longitude,
+            timestamp: position.timestamp,
+          );
+          final nowPaused = _pauseDetector.isPaused;
+          if (!wasPaused && nowPaused) {
+            _distanceAcc.resetAnchor();
+            await _localRepository.updateStatus(sessionId, 'paused');
+          } else if (wasPaused && !nowPaused) {
             await _localRepository.updateStatus(sessionId, 'active');
           }
           if (previous != null) {
@@ -241,7 +243,7 @@ class GpsTracker {
               _rejectedSpeedFixes++;
               return;
             }
-            if (!_autoPaused && durationS > 0 && !_manuallyPaused) {
+            if (!_pauseDetector.isPaused && durationS > 0 && !_manuallyPaused) {
               _movingTime += Duration(seconds: durationS);
             }
             // ── Distance via net-displacement anchoring ───────────────
@@ -254,7 +256,7 @@ class GpsTracker {
             // so sub-threshold jitter cancels while real movement accumulates.
             // Cycling is unaffected (its segments already exceed the
             // threshold). Elevation gain stays per-fix.
-            if (!_autoPaused && !_manuallyPaused) {
+            if (!_pauseDetector.isPaused && !_manuallyPaused) {
               _distanceAcc.addFix(
                 latitude: position.latitude,
                 longitude: position.longitude,
@@ -294,7 +296,7 @@ class GpsTracker {
               distanceM: _distanceAcc.distanceM,
               elevationGainM: _elevationGainM,
               movingTimeS: _movingTime.inSeconds,
-              status: _autoPaused ? 'paused' : 'active',
+              status: _pauseDetector.isPaused ? 'paused' : 'active',
             );
             onUpdate(current);
           }
@@ -311,8 +313,7 @@ class GpsTracker {
   Future<void> resume() async {
     if (_activeSessionId == null) return;
     _manuallyPaused = false;
-    _autoPaused = false;
-    _belowPauseThresholdSince = null;
+    _pauseDetector.reset();
     await _localRepository.updateStatus(_activeSessionId!, 'active');
   }
 
@@ -410,6 +411,93 @@ class GpsDistanceAccumulator {
   }
 
   static double _toRad(double degrees) => degrees * math.pi / 180.0;
+}
+
+/// Decides when to auto-pause/resume, robust to platforms that withhold speed.
+///
+/// On Android `Position.speed` is reliable, so movement is judged by speed with
+/// hysteresis (pause below [pauseSpeedMs], resume above [resumeSpeedMs]) — the
+/// original, proven behaviour. On iOS `CLLocation.speed` is frequently
+/// unavailable at walking pace, arriving as a `0.0` placeholder with
+/// `hasSpeed == false`; treating that as "stopped" false-paused mid-walk and
+/// dropped ~half the distance. When speed is unknown, movement is judged by NET
+/// DISPLACEMENT instead: the user is "moving" once a fix is more than
+/// [moveThresholdM] from the stillness anchor, so real walking never pauses
+/// while a genuine standstill (jitter only) still does after [stillWindow].
+@visibleForTesting
+class AutoPauseDetector {
+  AutoPauseDetector({
+    required this.pauseSpeedMs,
+    required this.resumeSpeedMs,
+    this.stillWindow = const Duration(seconds: 20),
+    this.moveThresholdM = 8.0,
+    bool initiallyPaused = false,
+  }) : _paused = initiallyPaused;
+
+  final double pauseSpeedMs;
+  final double resumeSpeedMs;
+  final Duration stillWindow;
+
+  /// Net metres a fix must sit from the stillness anchor to count as moving when
+  /// speed is unknown. ≈ GPS accuracy: jitter stays under it, a real walker
+  /// clears it within [stillWindow]. The on-device tuning knob.
+  final double moveThresholdM;
+
+  bool _paused;
+  DateTime? _stillSince;
+  double? _anchorLat;
+  double? _anchorLon;
+
+  bool get isPaused => _paused;
+
+  /// Clear auto-pause and the movement anchor (e.g. on manual resume).
+  void reset() {
+    _paused = false;
+    _stillSince = null;
+    _anchorLat = null;
+    _anchorLon = null;
+  }
+
+  /// Feed one accepted fix, updating [isPaused]. [speedKnown] MUST be false when
+  /// the platform did not report speed (iOS at walking pace) — then movement is
+  /// judged by displacement rather than the placeholder `0.0` speed.
+  void update({
+    required bool speedKnown,
+    required double speed,
+    required double latitude,
+    required double longitude,
+    required DateTime timestamp,
+  }) {
+    final bool moving;
+    if (speedKnown) {
+      // Hysteresis: higher bar to resume than to keep going.
+      moving = _paused ? speed > resumeSpeedMs : speed >= pauseSpeedMs;
+    } else {
+      final anchorLat = _anchorLat;
+      final anchorLon = _anchorLon;
+      moving = anchorLat != null &&
+          anchorLon != null &&
+          GpsDistanceAccumulator._haversineM(
+                  anchorLat, anchorLon, latitude, longitude) >
+              moveThresholdM;
+    }
+
+    if (moving) {
+      _stillSince = null;
+      _paused = false;
+      _anchorLat = latitude;
+      _anchorLon = longitude;
+    } else {
+      _stillSince ??= timestamp;
+      if (!_paused && timestamp.difference(_stillSince!) >= stillWindow) {
+        _paused = true;
+      }
+      // Anchor stays put while still so displacement is measured from where the
+      // stillness began; initialise it on the first still fix.
+      _anchorLat ??= latitude;
+      _anchorLon ??= longitude;
+    }
+  }
 }
 
 class TrackingException implements Exception {
