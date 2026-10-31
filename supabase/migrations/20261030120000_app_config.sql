@@ -12,7 +12,8 @@ drop policy if exists "app_config readable by authenticated" on public.app_confi
 create policy "app_config readable by authenticated"
   on public.app_config for select to authenticated using (true);
 
--- Background auto-sync global kill switch — ships OFF.
+-- Background auto-sync global kill switch — ships ON. Disable fleet-wide with:
+--   update public.app_config set value = '{"enabled": false}' where key = 'auto_sync';
 insert into public.app_config (key, value)
-values ('auto_sync', '{"enabled": false}'::jsonb)
+values ('auto_sync', '{"enabled": true}'::jsonb)
 on conflict (key) do nothing;
