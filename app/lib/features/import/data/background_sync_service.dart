@@ -4,8 +4,10 @@ import 'package:activefriends/data/local/app_database.dart';
 import 'package:activefriends/features/import/data/feature_flag_service.dart';
 import 'package:activefriends/features/import/data/health_sync_core.dart';
 import 'package:activefriends/features/import/data/local_import_repository.dart';
+import 'package:activefriends/features/import/data/sync_notifier.dart';
 import 'package:activefriends/features/import/data/sync_state_repository.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:health/health.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -56,12 +58,14 @@ class BackgroundSyncService {
     SyncStateRepository? syncStateRepository,
     ChangesTokenFetcher? changesTokenFetcher,
     ChangesFetcher? changesFetcher,
+    SyncNotifier? notifier,
   })  : _flags = flags,
         _core = core,
         _localRepository = localRepository,
         _syncStateRepository = syncStateRepository,
         _changesTokenFetcher = changesTokenFetcher, // ignore: prefer_initializing_formals
-        _changesFetcher = changesFetcher; // ignore: prefer_initializing_formals
+        _changesFetcher = changesFetcher, // ignore: prefer_initializing_formals
+        _notifier = notifier; // ignore: prefer_initializing_formals
 
   /// Factory for the WorkManager background isolate. Opens its OWN Drift
   /// connection — never `AppDatabase.shared`, which is uninitialised in a fresh
@@ -91,6 +95,7 @@ class BackgroundSyncService {
               resp.nextChangesToken.isEmpty ? null : resp.nextChangesToken,
         );
       },
+      notifier: SyncNotifier(plugin: FlutterLocalNotificationsPlugin()),
     );
   }
 
@@ -104,6 +109,7 @@ class BackgroundSyncService {
   final SyncStateRepository? _syncStateRepository;
   final ChangesTokenFetcher? _changesTokenFetcher;
   final ChangesFetcher? _changesFetcher;
+  final SyncNotifier? _notifier;
 
   Future<BackgroundSyncResult> syncIncremental({required String userId}) async {
     // 0. Remote kill switch. Fail-safe: disabled unless explicitly enabled.
@@ -188,6 +194,10 @@ class BackgroundSyncService {
           userId: userId, source: source, importedThrough: now);
       await syncStateRepository.recordSyncAttempt(
           userId: userId, source: source, success: true);
+
+      if (imported > 0) {
+        await _notifier?.showSynced(imported);
+      }
 
       return BackgroundSyncResult(
           imported: imported, skipped: skipped, queued: queued);
