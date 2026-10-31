@@ -38,10 +38,10 @@ class AutoSyncPlatform {
         return null;
       });
     }
-    await manager().syncRegistration();
+    await _manager().syncRegistration();
   }
 
-  AutoSyncManager manager() => AutoSyncManager(
+  AutoSyncManager _manager() => AutoSyncManager(
         flags: FeatureFlagService(),
         prefs: AutoSyncPreferences(),
         register: _register,

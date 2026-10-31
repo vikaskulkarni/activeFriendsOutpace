@@ -76,10 +76,14 @@ Future<void> main() async {
   }
   await ConnectivityService.instance.initialize();
   if (SupabaseConfig.isConfigured) {
-    await AutoSyncPlatform(
-      callbackDispatcher: callbackDispatcher,
-      kHealthSyncTask: kHealthSyncTask,
-    ).start();
+    try {
+      await AutoSyncPlatform(
+        callbackDispatcher: callbackDispatcher,
+        kHealthSyncTask: kHealthSyncTask,
+      ).start();
+    } catch (e) {
+      developer.log('AutoSync startup failed: $e', name: 'AutoSync');
+    }
   }
   runApp(const ActiveFriendsApp());
 }
