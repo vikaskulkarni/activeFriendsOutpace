@@ -1,19 +1,80 @@
 import 'dart:developer' as developer;
 
+import 'package:activefriends/features/import/data/auto_sync_platform.dart';
+import 'package:activefriends/features/import/data/auto_sync_preferences.dart';
+import 'package:activefriends/features/import/data/feature_flag_service.dart';
 import 'package:activefriends/features/import/data/health_import_service.dart';
 import 'package:flutter/material.dart';
 
 class WatchImportSection extends StatefulWidget {
-  const WatchImportSection({super.key});
+  const WatchImportSection({
+    super.key,
+    this._autoSyncPrefs,
+    this._flags,
+    this._onToggle,
+  });
+
+  final AutoSyncPreferences? _autoSyncPrefs;
+  final FeatureFlagService? _flags;
+  final Future<void> Function()? _onToggle;
 
   @override
   State<WatchImportSection> createState() => _WatchImportSectionState();
 }
 
 class _WatchImportSectionState extends State<WatchImportSection> {
-  final _service = HealthImportService();
+  late final _service = HealthImportService();
   var _isImporting = false;
   String? _message;
+
+  late final AutoSyncPreferences _prefs =
+      widget._autoSyncPrefs ?? AutoSyncPreferences();
+  late final FeatureFlagService _flagsSvc = widget._flags ?? FeatureFlagService();
+  bool _autoSyncOn = false;
+  bool _remoteAllowed = false;
+  DateTime? _lastSynced;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAutoSyncState();
+  }
+
+  Future<void> _loadAutoSyncState() async {
+    final on = await _prefs.isEnabled();
+    final remote = await _flagsSvc.autoSyncEnabled();
+    final last = await _prefs.lastSuccess();
+    if (mounted) {
+      setState(() {
+        _autoSyncOn = on;
+        _remoteAllowed = remote;
+        _lastSynced = last;
+      });
+    }
+  }
+
+  Future<void> _toggleAutoSync(bool value) async {
+    await _prefs.setEnabled(value);
+    setState(() => _autoSyncOn = value);
+    final onToggle = widget._onToggle;
+    if (onToggle != null) {
+      await onToggle();
+    } else {
+      // Real platform path: resolve the two-gate and register/teardown.
+      await AutoSyncPlatform(
+        callbackDispatcher: callbackDispatcher,
+        kHealthSyncTask: kHealthSyncTask,
+      ).syncRegistration();
+    }
+  }
+
+  String _relative(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes} min ago';
+    if (d.inHours < 24) return '${d.inHours} h ago';
+    return '${d.inDays} d ago';
+  }
 
   Future<void> _import() async {
     setState(() {
@@ -66,6 +127,30 @@ class _WatchImportSectionState extends State<WatchImportSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Row(
+          children: [
+            const Expanded(child: Text('Auto-Sync')),
+            Switch(
+              value: _autoSyncOn,
+              onChanged: _remoteAllowed || _autoSyncOn
+                  ? (v) => _toggleAutoSync(v)
+                  : null,
+            ),
+          ],
+        ),
+        Text(
+          _remoteAllowed
+              ? 'Automatically import new workouts when your watch syncs.'
+              : 'Auto-sync is currently unavailable.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        if (_lastSynced != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('Last sync: ${_relative(_lastSynced!)}',
+                style: Theme.of(context).textTheme.bodySmall),
+          ),
+        const Divider(height: 24),
         Row(
           children: [
             Expanded(child: Text('Health Connect or Apple Health', style: Theme.of(context).textTheme.bodyMedium)),
