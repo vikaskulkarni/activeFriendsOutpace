@@ -54,7 +54,7 @@ import HealthKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     NSLog("[outpace][push] ── plugin registration complete ──")
 
-    let messenger = engineBridge.applicationRegistrar.messenger
+    let messenger = engineBridge.applicationRegistrar.messenger()
     let channel = FlutterMethodChannel(
       name: "app.activefriends.app/health_sync",
       binaryMessenger: messenger
