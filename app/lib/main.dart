@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'package:activefriends/core/app.dart';
 import 'package:activefriends/core/config/supabase_config.dart';
 import 'package:activefriends/core/data/connectivity_service.dart';
+import 'package:activefriends/features/import/data/auto_sync_platform.dart';
 import 'package:activefriends/features/import/data/background_sync_service.dart';
 import 'package:activefriends/features/import/data/feature_flag_service.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -74,5 +75,11 @@ Future<void> main() async {
     );
   }
   await ConnectivityService.instance.initialize();
+  if (SupabaseConfig.isConfigured) {
+    await AutoSyncPlatform(
+      callbackDispatcher: callbackDispatcher,
+      kHealthSyncTask: kHealthSyncTask,
+    ).start();
+  }
   runApp(const ActiveFriendsApp());
 }
