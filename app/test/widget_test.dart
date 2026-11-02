@@ -15,9 +15,11 @@ void main() {
   ) async {
     await tester.pumpWidget(const ActiveFriendsApp());
 
+    // With no Supabase config (the default under `flutter test`), the app shows
+    // the unconfigured BootstrapScreen: the wordmark and the tagline.
     expect(find.text('OUTPACE'), findsOneWidget);
     expect(
-      find.text('Backend configuration is required before sign-in.'),
+      find.text('Our club. Our activity. Our pace.'),
       findsOneWidget,
     );
   });
