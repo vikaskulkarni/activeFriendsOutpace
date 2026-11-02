@@ -8,7 +8,7 @@ on:
 
 jobs:
   analyze-and-test:
-    name: Analyze & Test
+    name: Analyze, Test & Build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,6 +22,12 @@ jobs:
           flutter-version: '3.47.x'
           channel: 'stable'
 
+      - name: Provide firebase_options stub for CI
+        run: cp lib/firebase_options.dart.example lib/firebase_options.dart
+
+      - name: Provide google-services stub for CI
+        run: cp android/app/google-services.json.example android/app/google-services.json
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -30,3 +36,6 @@ jobs:
 
       - name: Run tests
         run: flutter test
+
+      - name: Build debug APK (compile sanity)
+        run: flutter build apk --debug --target-platform android-arm64

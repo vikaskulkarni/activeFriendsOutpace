@@ -38,13 +38,15 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       );
       if (!mounted) return;
       await Supabase.instance.client.auth.signOut();
-      if (mounted)
+      if (mounted) {
         setState(() => _message = 'Password updated. You can now sign in.');
+      }
     } on AuthException catch (error) {
       if (mounted) setState(() => _message = error.message);
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => _message = 'Could not update password. Try again.');
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }

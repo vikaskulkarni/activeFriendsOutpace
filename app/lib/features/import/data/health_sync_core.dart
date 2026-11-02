@@ -44,9 +44,9 @@ class HealthSyncCore {
     required Health health,
     required SupabaseClient client,
     required LocalImportRepository localRepository,
-  }) : _health = health,
-       _client = client,
-       _localRepository = localRepository;
+  }) : _health = health, // ignore: prefer_initializing_formals
+       _client = client, // ignore: prefer_initializing_formals
+       _localRepository = localRepository; // ignore: prefer_initializing_formals
 
   final Health _health;
   final SupabaseClient _client;

@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:activefriends/data/local/app_database.dart';
 import 'package:drift/drift.dart';
 

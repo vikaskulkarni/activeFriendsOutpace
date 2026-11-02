@@ -416,11 +416,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                 if (!mounted) return;
                 String? savedActivityId;
                 if (choice == 'gps') {
-                  savedActivityId = await Navigator.of(context).push<String>(
+                  savedActivityId = await Navigator.of(context).push<String>( // ignore: use_build_context_synchronously
                     MaterialPageRoute(builder: (_) => const TrackingScreen()),
                   );
                 } else if (choice == 'manual') {
-                  savedActivityId = await Navigator.of(context).push<String>(
+                  savedActivityId = await Navigator.of(context).push<String>( // ignore: use_build_context_synchronously
                     MaterialPageRoute(
                       builder: (_) => const ManualActivityScreen(),
                     ),

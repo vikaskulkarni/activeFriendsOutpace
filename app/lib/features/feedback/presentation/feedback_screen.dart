@@ -256,7 +256,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: _screenshots.length + (_screenshots.length < _maxScreenshots ? 1 : 0),
-              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              separatorBuilder: (_, _) => const SizedBox(width: 10),
               itemBuilder: (context, index) {
                 // "Add more" button at the end
                 if (index == _screenshots.length) {
@@ -296,7 +296,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                         child: Image.file(
                           File(_screenshots[index].path),
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.image)),
+                          errorBuilder: (_, _, _) => const Center(child: Icon(Icons.image)),
                         ),
                       ),
                     ),
@@ -376,7 +376,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
             itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) => _FeedbackCard(item: items[index]),
           ),
         );

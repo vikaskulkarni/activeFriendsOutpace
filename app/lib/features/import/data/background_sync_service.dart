@@ -68,10 +68,10 @@ class BackgroundSyncService {
     SyncNotifier? notifier,
     AutoSyncPreferences? autoSyncPrefs,
     BackgroundDiagnosticsRecorder? diagnosticsRecorder,
-  })  : _flags = flags,
-        _core = core,
-        _localRepository = localRepository,
-        _syncStateRepository = syncStateRepository,
+  })  : _flags = flags, // ignore: prefer_initializing_formals
+        _core = core, // ignore: prefer_initializing_formals
+        _localRepository = localRepository, // ignore: prefer_initializing_formals
+        _syncStateRepository = syncStateRepository, // ignore: prefer_initializing_formals
         _changesTokenFetcher = changesTokenFetcher, // ignore: prefer_initializing_formals
         _changesFetcher = changesFetcher, // ignore: prefer_initializing_formals
         _notifier = notifier, // ignore: prefer_initializing_formals

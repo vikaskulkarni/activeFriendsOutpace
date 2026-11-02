@@ -14,8 +14,8 @@ class FeatureFlagService {
     SharedPreferences? prefs,
     SupabaseClient? client,
   })  : _fetch = fetchAutoSyncRow,
-        _prefs = prefs,
-        _client = client;
+        _prefs = prefs, // ignore: prefer_initializing_formals
+        _client = client; // ignore: prefer_initializing_formals
 
   static const cacheKey = 'auto_sync_remote_enabled';
 

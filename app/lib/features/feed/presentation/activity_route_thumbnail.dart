@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -409,6 +408,7 @@ class _StaticMapThumbnailState extends State<_StaticMapThumbnail>
 /// zero map-controller overhead. Perfect for feed-card thumbnails.
 /// NOTE: Currently unused — retained as a fallback if snapshot approach
 /// needs to be reverted.
+// ignore: unused_element
 class _RouteShapePainter extends CustomPainter {
   _RouteShapePainter(this.points);
 
