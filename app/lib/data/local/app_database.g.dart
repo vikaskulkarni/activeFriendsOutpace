@@ -2994,6 +2994,549 @@ class TrackingPointsCompanion extends UpdateCompanion<TrackingPoint> {
   }
 }
 
+class $SyncStatesTable extends SyncStates
+    with TableInfo<$SyncStatesTable, SyncState> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncStatesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _changesTokenMeta = const VerificationMeta(
+    'changesToken',
+  );
+  @override
+  late final GeneratedColumn<String> changesToken = GeneratedColumn<String>(
+    'changes_token',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _hkAnchorMeta = const VerificationMeta(
+    'hkAnchor',
+  );
+  @override
+  late final GeneratedColumn<Uint8List> hkAnchor = GeneratedColumn<Uint8List>(
+    'hk_anchor',
+    aliasedName,
+    true,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastSuccessfulAtMeta = const VerificationMeta(
+    'lastSuccessfulAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastSuccessfulAt =
+      GeneratedColumn<DateTime>(
+        'last_successful_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _lastAttemptAtMeta = const VerificationMeta(
+    'lastAttemptAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastAttemptAt =
+      GeneratedColumn<DateTime>(
+        'last_attempt_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _consecutiveFailuresMeta =
+      const VerificationMeta('consecutiveFailures');
+  @override
+  late final GeneratedColumn<int> consecutiveFailures = GeneratedColumn<int>(
+    'consecutive_failures',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    userId,
+    source,
+    changesToken,
+    hkAnchor,
+    lastSuccessfulAt,
+    lastAttemptAt,
+    consecutiveFailures,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_states';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncState> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceMeta);
+    }
+    if (data.containsKey('changes_token')) {
+      context.handle(
+        _changesTokenMeta,
+        changesToken.isAcceptableOrUnknown(
+          data['changes_token']!,
+          _changesTokenMeta,
+        ),
+      );
+    }
+    if (data.containsKey('hk_anchor')) {
+      context.handle(
+        _hkAnchorMeta,
+        hkAnchor.isAcceptableOrUnknown(data['hk_anchor']!, _hkAnchorMeta),
+      );
+    }
+    if (data.containsKey('last_successful_at')) {
+      context.handle(
+        _lastSuccessfulAtMeta,
+        lastSuccessfulAt.isAcceptableOrUnknown(
+          data['last_successful_at']!,
+          _lastSuccessfulAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_attempt_at')) {
+      context.handle(
+        _lastAttemptAtMeta,
+        lastAttemptAt.isAcceptableOrUnknown(
+          data['last_attempt_at']!,
+          _lastAttemptAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('consecutive_failures')) {
+      context.handle(
+        _consecutiveFailuresMeta,
+        consecutiveFailures.isAcceptableOrUnknown(
+          data['consecutive_failures']!,
+          _consecutiveFailuresMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {userId, source};
+  @override
+  SyncState map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncState(
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
+      )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      changesToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}changes_token'],
+      ),
+      hkAnchor: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}hk_anchor'],
+      ),
+      lastSuccessfulAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_successful_at'],
+      ),
+      lastAttemptAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_attempt_at'],
+      ),
+      consecutiveFailures: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}consecutive_failures'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncStatesTable createAlias(String alias) {
+    return $SyncStatesTable(attachedDatabase, alias);
+  }
+}
+
+class SyncState extends DataClass implements Insertable<SyncState> {
+  final String userId;
+  final String source;
+  final String? changesToken;
+  final Uint8List? hkAnchor;
+  final DateTime? lastSuccessfulAt;
+  final DateTime? lastAttemptAt;
+  final int consecutiveFailures;
+  final DateTime updatedAt;
+  const SyncState({
+    required this.userId,
+    required this.source,
+    this.changesToken,
+    this.hkAnchor,
+    this.lastSuccessfulAt,
+    this.lastAttemptAt,
+    required this.consecutiveFailures,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['user_id'] = Variable<String>(userId);
+    map['source'] = Variable<String>(source);
+    if (!nullToAbsent || changesToken != null) {
+      map['changes_token'] = Variable<String>(changesToken);
+    }
+    if (!nullToAbsent || hkAnchor != null) {
+      map['hk_anchor'] = Variable<Uint8List>(hkAnchor);
+    }
+    if (!nullToAbsent || lastSuccessfulAt != null) {
+      map['last_successful_at'] = Variable<DateTime>(lastSuccessfulAt);
+    }
+    if (!nullToAbsent || lastAttemptAt != null) {
+      map['last_attempt_at'] = Variable<DateTime>(lastAttemptAt);
+    }
+    map['consecutive_failures'] = Variable<int>(consecutiveFailures);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  SyncStatesCompanion toCompanion(bool nullToAbsent) {
+    return SyncStatesCompanion(
+      userId: Value(userId),
+      source: Value(source),
+      changesToken: changesToken == null && nullToAbsent
+          ? const Value.absent()
+          : Value(changesToken),
+      hkAnchor: hkAnchor == null && nullToAbsent
+          ? const Value.absent()
+          : Value(hkAnchor),
+      lastSuccessfulAt: lastSuccessfulAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastSuccessfulAt),
+      lastAttemptAt: lastAttemptAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastAttemptAt),
+      consecutiveFailures: Value(consecutiveFailures),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory SyncState.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncState(
+      userId: serializer.fromJson<String>(json['userId']),
+      source: serializer.fromJson<String>(json['source']),
+      changesToken: serializer.fromJson<String?>(json['changesToken']),
+      hkAnchor: serializer.fromJson<Uint8List?>(json['hkAnchor']),
+      lastSuccessfulAt: serializer.fromJson<DateTime?>(
+        json['lastSuccessfulAt'],
+      ),
+      lastAttemptAt: serializer.fromJson<DateTime?>(json['lastAttemptAt']),
+      consecutiveFailures: serializer.fromJson<int>(
+        json['consecutiveFailures'],
+      ),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'userId': serializer.toJson<String>(userId),
+      'source': serializer.toJson<String>(source),
+      'changesToken': serializer.toJson<String?>(changesToken),
+      'hkAnchor': serializer.toJson<Uint8List?>(hkAnchor),
+      'lastSuccessfulAt': serializer.toJson<DateTime?>(lastSuccessfulAt),
+      'lastAttemptAt': serializer.toJson<DateTime?>(lastAttemptAt),
+      'consecutiveFailures': serializer.toJson<int>(consecutiveFailures),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  SyncState copyWith({
+    String? userId,
+    String? source,
+    Value<String?> changesToken = const Value.absent(),
+    Value<Uint8List?> hkAnchor = const Value.absent(),
+    Value<DateTime?> lastSuccessfulAt = const Value.absent(),
+    Value<DateTime?> lastAttemptAt = const Value.absent(),
+    int? consecutiveFailures,
+    DateTime? updatedAt,
+  }) => SyncState(
+    userId: userId ?? this.userId,
+    source: source ?? this.source,
+    changesToken: changesToken.present ? changesToken.value : this.changesToken,
+    hkAnchor: hkAnchor.present ? hkAnchor.value : this.hkAnchor,
+    lastSuccessfulAt: lastSuccessfulAt.present
+        ? lastSuccessfulAt.value
+        : this.lastSuccessfulAt,
+    lastAttemptAt: lastAttemptAt.present
+        ? lastAttemptAt.value
+        : this.lastAttemptAt,
+    consecutiveFailures: consecutiveFailures ?? this.consecutiveFailures,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  SyncState copyWithCompanion(SyncStatesCompanion data) {
+    return SyncState(
+      userId: data.userId.present ? data.userId.value : this.userId,
+      source: data.source.present ? data.source.value : this.source,
+      changesToken: data.changesToken.present
+          ? data.changesToken.value
+          : this.changesToken,
+      hkAnchor: data.hkAnchor.present ? data.hkAnchor.value : this.hkAnchor,
+      lastSuccessfulAt: data.lastSuccessfulAt.present
+          ? data.lastSuccessfulAt.value
+          : this.lastSuccessfulAt,
+      lastAttemptAt: data.lastAttemptAt.present
+          ? data.lastAttemptAt.value
+          : this.lastAttemptAt,
+      consecutiveFailures: data.consecutiveFailures.present
+          ? data.consecutiveFailures.value
+          : this.consecutiveFailures,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncState(')
+          ..write('userId: $userId, ')
+          ..write('source: $source, ')
+          ..write('changesToken: $changesToken, ')
+          ..write('hkAnchor: $hkAnchor, ')
+          ..write('lastSuccessfulAt: $lastSuccessfulAt, ')
+          ..write('lastAttemptAt: $lastAttemptAt, ')
+          ..write('consecutiveFailures: $consecutiveFailures, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    userId,
+    source,
+    changesToken,
+    $driftBlobEquality.hash(hkAnchor),
+    lastSuccessfulAt,
+    lastAttemptAt,
+    consecutiveFailures,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncState &&
+          other.userId == this.userId &&
+          other.source == this.source &&
+          other.changesToken == this.changesToken &&
+          $driftBlobEquality.equals(other.hkAnchor, this.hkAnchor) &&
+          other.lastSuccessfulAt == this.lastSuccessfulAt &&
+          other.lastAttemptAt == this.lastAttemptAt &&
+          other.consecutiveFailures == this.consecutiveFailures &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SyncStatesCompanion extends UpdateCompanion<SyncState> {
+  final Value<String> userId;
+  final Value<String> source;
+  final Value<String?> changesToken;
+  final Value<Uint8List?> hkAnchor;
+  final Value<DateTime?> lastSuccessfulAt;
+  final Value<DateTime?> lastAttemptAt;
+  final Value<int> consecutiveFailures;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const SyncStatesCompanion({
+    this.userId = const Value.absent(),
+    this.source = const Value.absent(),
+    this.changesToken = const Value.absent(),
+    this.hkAnchor = const Value.absent(),
+    this.lastSuccessfulAt = const Value.absent(),
+    this.lastAttemptAt = const Value.absent(),
+    this.consecutiveFailures = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncStatesCompanion.insert({
+    required String userId,
+    required String source,
+    this.changesToken = const Value.absent(),
+    this.hkAnchor = const Value.absent(),
+    this.lastSuccessfulAt = const Value.absent(),
+    this.lastAttemptAt = const Value.absent(),
+    this.consecutiveFailures = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : userId = Value(userId),
+       source = Value(source);
+  static Insertable<SyncState> custom({
+    Expression<String>? userId,
+    Expression<String>? source,
+    Expression<String>? changesToken,
+    Expression<Uint8List>? hkAnchor,
+    Expression<DateTime>? lastSuccessfulAt,
+    Expression<DateTime>? lastAttemptAt,
+    Expression<int>? consecutiveFailures,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (userId != null) 'user_id': userId,
+      if (source != null) 'source': source,
+      if (changesToken != null) 'changes_token': changesToken,
+      if (hkAnchor != null) 'hk_anchor': hkAnchor,
+      if (lastSuccessfulAt != null) 'last_successful_at': lastSuccessfulAt,
+      if (lastAttemptAt != null) 'last_attempt_at': lastAttemptAt,
+      if (consecutiveFailures != null)
+        'consecutive_failures': consecutiveFailures,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncStatesCompanion copyWith({
+    Value<String>? userId,
+    Value<String>? source,
+    Value<String?>? changesToken,
+    Value<Uint8List?>? hkAnchor,
+    Value<DateTime?>? lastSuccessfulAt,
+    Value<DateTime?>? lastAttemptAt,
+    Value<int>? consecutiveFailures,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return SyncStatesCompanion(
+      userId: userId ?? this.userId,
+      source: source ?? this.source,
+      changesToken: changesToken ?? this.changesToken,
+      hkAnchor: hkAnchor ?? this.hkAnchor,
+      lastSuccessfulAt: lastSuccessfulAt ?? this.lastSuccessfulAt,
+      lastAttemptAt: lastAttemptAt ?? this.lastAttemptAt,
+      consecutiveFailures: consecutiveFailures ?? this.consecutiveFailures,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (changesToken.present) {
+      map['changes_token'] = Variable<String>(changesToken.value);
+    }
+    if (hkAnchor.present) {
+      map['hk_anchor'] = Variable<Uint8List>(hkAnchor.value);
+    }
+    if (lastSuccessfulAt.present) {
+      map['last_successful_at'] = Variable<DateTime>(lastSuccessfulAt.value);
+    }
+    if (lastAttemptAt.present) {
+      map['last_attempt_at'] = Variable<DateTime>(lastAttemptAt.value);
+    }
+    if (consecutiveFailures.present) {
+      map['consecutive_failures'] = Variable<int>(consecutiveFailures.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncStatesCompanion(')
+          ..write('userId: $userId, ')
+          ..write('source: $source, ')
+          ..write('changesToken: $changesToken, ')
+          ..write('hkAnchor: $hkAnchor, ')
+          ..write('lastSuccessfulAt: $lastSuccessfulAt, ')
+          ..write('lastAttemptAt: $lastAttemptAt, ')
+          ..write('consecutiveFailures: $consecutiveFailures, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3009,6 +3552,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     this,
   );
   late final $TrackingPointsTable trackingPoints = $TrackingPointsTable(this);
+  late final $SyncStatesTable syncStates = $SyncStatesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3019,6 +3563,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     pendingActivitySyncs,
     trackingSessions,
     trackingPoints,
+    syncStates,
   ];
 }
 
@@ -4564,6 +5109,275 @@ typedef $$TrackingPointsTableProcessedTableManager =
       TrackingPoint,
       PrefetchHooks Function()
     >;
+typedef $$SyncStatesTableCreateCompanionBuilder = SyncStatesCompanion Function({
+  required String userId,
+  required String source,
+  Value<String?> changesToken,
+  Value<Uint8List?> hkAnchor,
+  Value<DateTime?> lastSuccessfulAt,
+  Value<DateTime?> lastAttemptAt,
+  Value<int> consecutiveFailures,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+typedef $$SyncStatesTableUpdateCompanionBuilder = SyncStatesCompanion Function({
+  Value<String> userId,
+  Value<String> source,
+  Value<String?> changesToken,
+  Value<Uint8List?> hkAnchor,
+  Value<DateTime?> lastSuccessfulAt,
+  Value<DateTime?> lastAttemptAt,
+  Value<int> consecutiveFailures,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$SyncStatesTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncStatesTable> {
+  $$SyncStatesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get changesToken => $composableBuilder(
+    column: $table.changesToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get hkAnchor => $composableBuilder(
+    column: $table.hkAnchor,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastSuccessfulAt => $composableBuilder(
+    column: $table.lastSuccessfulAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastAttemptAt => $composableBuilder(
+    column: $table.lastAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get consecutiveFailures => $composableBuilder(
+    column: $table.consecutiveFailures,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncStatesTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncStatesTable> {
+  $$SyncStatesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get changesToken => $composableBuilder(
+    column: $table.changesToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get hkAnchor => $composableBuilder(
+    column: $table.hkAnchor,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastSuccessfulAt => $composableBuilder(
+    column: $table.lastSuccessfulAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastAttemptAt => $composableBuilder(
+    column: $table.lastAttemptAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get consecutiveFailures => $composableBuilder(
+    column: $table.consecutiveFailures,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncStatesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncStatesTable> {
+  $$SyncStatesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get changesToken => $composableBuilder(
+    column: $table.changesToken,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<Uint8List> get hkAnchor =>
+      $composableBuilder(column: $table.hkAnchor, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastSuccessfulAt => $composableBuilder(
+    column: $table.lastSuccessfulAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get lastAttemptAt => $composableBuilder(
+    column: $table.lastAttemptAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get consecutiveFailures => $composableBuilder(
+    column: $table.consecutiveFailures,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$SyncStatesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SyncStatesTable,
+          SyncState,
+          $$SyncStatesTableFilterComposer,
+          $$SyncStatesTableOrderingComposer,
+          $$SyncStatesTableAnnotationComposer,
+          $$SyncStatesTableCreateCompanionBuilder,
+          $$SyncStatesTableUpdateCompanionBuilder,
+          (
+            SyncState,
+            BaseReferences<_$AppDatabase, $SyncStatesTable, SyncState>,
+          ),
+          SyncState,
+          PrefetchHooks Function()
+        > {
+  $$SyncStatesTableTableManager(_$AppDatabase db, $SyncStatesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncStatesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncStatesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncStatesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> userId = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String?> changesToken = const Value.absent(),
+                Value<Uint8List?> hkAnchor = const Value.absent(),
+                Value<DateTime?> lastSuccessfulAt = const Value.absent(),
+                Value<DateTime?> lastAttemptAt = const Value.absent(),
+                Value<int> consecutiveFailures = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncStatesCompanion(
+                userId: userId,
+                source: source,
+                changesToken: changesToken,
+                hkAnchor: hkAnchor,
+                lastSuccessfulAt: lastSuccessfulAt,
+                lastAttemptAt: lastAttemptAt,
+                consecutiveFailures: consecutiveFailures,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String userId,
+                required String source,
+                Value<String?> changesToken = const Value.absent(),
+                Value<Uint8List?> hkAnchor = const Value.absent(),
+                Value<DateTime?> lastSuccessfulAt = const Value.absent(),
+                Value<DateTime?> lastAttemptAt = const Value.absent(),
+                Value<int> consecutiveFailures = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncStatesCompanion.insert(
+                userId: userId,
+                source: source,
+                changesToken: changesToken,
+                hkAnchor: hkAnchor,
+                lastSuccessfulAt: lastSuccessfulAt,
+                lastAttemptAt: lastAttemptAt,
+                consecutiveFailures: consecutiveFailures,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$SyncStatesTable, SyncState>(table),
+                  BaseReferences<_$AppDatabase, $SyncStatesTable, SyncState>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncStatesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SyncStatesTable,
+      SyncState,
+      $$SyncStatesTableFilterComposer,
+      $$SyncStatesTableOrderingComposer,
+      $$SyncStatesTableAnnotationComposer,
+      $$SyncStatesTableCreateCompanionBuilder,
+      $$SyncStatesTableUpdateCompanionBuilder,
+      (SyncState, BaseReferences<_$AppDatabase, $SyncStatesTable, SyncState>),
+      SyncState,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -4578,4 +5392,6 @@ class $AppDatabaseManager {
       $$TrackingSessionsTableTableManager(_db, _db.trackingSessions);
   $$TrackingPointsTableTableManager get trackingPoints =>
       $$TrackingPointsTableTableManager(_db, _db.trackingPoints);
+  $$SyncStatesTableTableManager get syncStates =>
+      $$SyncStatesTableTableManager(_db, _db.syncStates);
 }

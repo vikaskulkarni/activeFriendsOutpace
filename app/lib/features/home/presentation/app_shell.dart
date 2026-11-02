@@ -13,7 +13,6 @@ import 'package:activefriends/features/leaderboard/presentation/leaderboard_scre
 import 'package:activefriends/features/leaderboard/presentation/share_card_preview_screen.dart';
 import 'package:activefriends/features/notifications/data/notification_repository.dart';
 import 'package:activefriends/features/notifications/data/push_notification_service.dart';
-import 'dart:convert';
 import 'package:activefriends/features/tracking/presentation/manual_activity_screen.dart';
 import 'package:activefriends/features/tracking/presentation/tracking_screen.dart';
 import 'package:activefriends/core/presentation/date_time_format.dart';
@@ -244,39 +243,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.bug_report),
-              title: const Text('Push debug info'),
-              subtitle: const Text('Tap to view iOS push diagnostics'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                final diag = PushNotificationService.instance.lastDiagnostics;
-                final text = diag != null
-                    ? const JsonEncoder.withIndent('  ').convert(diag)
-                    : 'No diagnostics yet — relaunch the app on iOS.';
-                showDialog<void>(
-                  context: context,
-                  builder: (dlg) => AlertDialog(
-                    title: const Text('Push diagnostics'),
-                    content: SingleChildScrollView(
-                      child: SelectableText(
-                        text,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(dlg).pop(),
-                        child: const Text('Close'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            ListTile(
               leading: const Icon(Icons.delete_forever, color: Colors.red),
               title: const Text(
                 'Delete account',
@@ -450,11 +416,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                 if (!mounted) return;
                 String? savedActivityId;
                 if (choice == 'gps') {
-                  savedActivityId = await Navigator.of(context).push<String>(
+                  savedActivityId = await Navigator.of(context).push<String>( // ignore: use_build_context_synchronously
                     MaterialPageRoute(builder: (_) => const TrackingScreen()),
                   );
                 } else if (choice == 'manual') {
-                  savedActivityId = await Navigator.of(context).push<String>(
+                  savedActivityId = await Navigator.of(context).push<String>( // ignore: use_build_context_synchronously
                     MaterialPageRoute(
                       builder: (_) => const ManualActivityScreen(),
                     ),

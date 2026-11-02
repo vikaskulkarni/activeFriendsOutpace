@@ -82,6 +82,20 @@ class TrackingPoints extends Table {
   Set<Column<Object>> get primaryKey => {sessionId, sequence};
 }
 
+class SyncStates extends Table {
+  TextColumn get userId => text()();
+  TextColumn get source => text()();
+  TextColumn get changesToken => text().nullable()();        // Android Changes API cursor
+  BlobColumn get hkAnchor => blob().nullable()();            // iOS HKQueryAnchor
+  DateTimeColumn get lastSuccessfulAt => dateTime().nullable()();
+  DateTimeColumn get lastAttemptAt => dateTime().nullable()();
+  IntColumn get consecutiveFailures => integer().withDefault(const Constant(0))();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+
+  @override
+  Set<Column<Object>> get primaryKey => {userId, source};
+}
+
 @DriftDatabase(
   tables: [
     LocalActivities,
@@ -89,6 +103,7 @@ class TrackingPoints extends Table {
     PendingActivitySyncs,
     TrackingSessions,
     TrackingPoints,
+    SyncStates,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -97,7 +112,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -123,6 +138,9 @@ class AppDatabase extends _$AppDatabase {
           trackingSessions,
           trackingSessions.ownerUserId,
         );
+      }
+      if (from < 6) {
+        await migrator.createTable(syncStates);
       }
     },
   );

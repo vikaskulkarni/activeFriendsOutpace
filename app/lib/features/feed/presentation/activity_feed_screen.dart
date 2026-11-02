@@ -14,6 +14,7 @@ import 'package:activefriends/features/profile/presentation/profile_avatar.dart'
 import 'package:activefriends/core/presentation/animated_refresh_button.dart';
 import 'package:activefriends/core/presentation/app_mark.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ActivityFeedScreen extends StatefulWidget {
@@ -173,7 +174,6 @@ class ActivityFeedScreenState extends State<ActivityFeedScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<AppColors>()!;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.club.name),
@@ -214,7 +214,7 @@ class ActivityFeedScreenState extends State<ActivityFeedScreen> {
                   onRefresh: _refresh,
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 90),
-                    cacheExtent: 500,
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(500),
                     physics: const BouncingScrollPhysics(
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
@@ -821,7 +821,6 @@ class _MetricsRow extends StatelessWidget {
     // Prefer moving time; fall back to elapsed time for health_connect imports
     // where moving time is unavailable (Health Connect doesn't expose it).
     final displayTimeS = activity.movingTimeS ?? activity.elapsedS;
-    final timeLabel = activity.movingTimeS != null ? null : 'elapsed';
     if (displayTimeS != null) {
       items.add(_StatItem(
         icon: Icons.timer_outlined,

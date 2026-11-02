@@ -3,9 +3,13 @@ import UIKit
 import FirebaseCore
 import FirebaseMessaging
 import UserNotifications
+import HealthKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private let healthStore = HKHealthStore()
+  private var healthSyncChannel: FlutterMethodChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -49,6 +53,28 @@ import UserNotifications
     NSLog("[outpace][push] ── didInitializeImplicitFlutterEngine → registering plugins ──")
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     NSLog("[outpace][push] ── plugin registration complete ──")
+
+    let messenger = engineBridge.applicationRegistrar.messenger()
+    let channel = FlutterMethodChannel(
+      name: "app.activefriends.app/health_sync",
+      binaryMessenger: messenger
+    )
+    channel.setMethodCallHandler { [weak self] call, result in
+      switch call.method {
+      case "enableBackgroundDelivery":
+        self?.enableHealthBackgroundDelivery()
+        result(nil)
+      case "disableBackgroundDelivery":
+        self?.disableHealthBackgroundDelivery()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    self.healthSyncChannel = channel
+    if HKHealthStore.isHealthDataAvailable() {
+      self.registerHealthKitObserver()
+    }
   }
 
   // Explicit APNs → FCM handoff — swizzling may not hook this delegate form.
@@ -81,5 +107,41 @@ import UserNotifications
     NSLog("[outpace][push] ❌ APNs register FAILED: domain=%@ code=%d — %@",
           nserr.domain, nserr.code, nserr.localizedDescription)
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+  }
+
+  private func registerHealthKitObserver() {
+    let workoutType = HKObjectType.workoutType()
+    let query = HKObserverQuery(sampleType: workoutType, predicate: nil) {
+      [weak self] _, completionHandler, error in
+      guard error == nil else { completionHandler(); return }
+      guard let self = self else { completionHandler(); return }
+      self.triggerDartSync { completionHandler() }
+    }
+    healthStore.execute(query)
+  }
+
+  private func triggerDartSync(completion: @escaping () -> Void) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self, let channel = self.healthSyncChannel else { completion(); return }
+      channel.invokeMethod("onHealthDataChanged", arguments: nil) { _ in
+        completion()
+      }
+    }
+  }
+
+  private func enableHealthBackgroundDelivery() {
+    let workoutType = HKObjectType.workoutType()
+    healthStore.enableBackgroundDelivery(for: workoutType, frequency: .immediate) {
+      success, error in
+      if let error = error {
+        NSLog("[outpace][sync] enableBackgroundDelivery failed: %@",
+              error.localizedDescription)
+      }
+    }
+  }
+
+  private func disableHealthBackgroundDelivery() {
+    let workoutType = HKObjectType.workoutType()
+    healthStore.disableBackgroundDelivery(for: workoutType) { _, _ in }
   }
 }

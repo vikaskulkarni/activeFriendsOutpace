@@ -309,7 +309,7 @@ class _PodiumColumn extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  '${entry.points.toStringAsFixed(0)}',
+                  entry.points.toStringAsFixed(0),
                   style: theme.textTheme.headlineMedium?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,

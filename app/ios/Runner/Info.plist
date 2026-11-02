@@ -29,7 +29,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Outpace can use your camera to take a profile photo.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Outpace reads your workouts to build your club leaderboard.</string>
+	<string>Outpace reads your workouts to sync your activity feed automatically.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Outpace syncs your activity data when you choose to import it.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

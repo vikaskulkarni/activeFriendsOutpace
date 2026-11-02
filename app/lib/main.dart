@@ -1,6 +1,9 @@
+import 'dart:developer' as developer;
+
 import 'package:activefriends/core/app.dart';
-import 'package:activefriends/core/data/connectivity_service.dart';
 import 'package:activefriends/core/config/supabase_config.dart';
+import 'package:activefriends/core/data/connectivity_service.dart';
+import 'package:activefriends/features/import/data/auto_sync_platform.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/widgets.dart';
@@ -32,5 +35,15 @@ Future<void> main() async {
     );
   }
   await ConnectivityService.instance.initialize();
+  if (SupabaseConfig.isConfigured) {
+    try {
+      await AutoSyncPlatform(
+        callbackDispatcher: callbackDispatcher,
+        kHealthSyncTask: kHealthSyncTask,
+      ).start();
+    } catch (e) {
+      developer.log('AutoSync startup failed: $e', name: 'AutoSync');
+    }
+  }
   runApp(const ActiveFriendsApp());
 }
