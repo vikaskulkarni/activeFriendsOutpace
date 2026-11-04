@@ -371,26 +371,13 @@ class HealthSyncCore {
     final candidates = response as List<dynamic>;
     if (candidates.isEmpty) return false;
 
-    final importDuration = end.difference(start).inSeconds;
-    if (importDuration <= 0) return false;
-
     for (final row in candidates) {
       final gpsStart = DateTime.parse(row['started_at'] as String);
       final gpsEnd = DateTime.parse(row['ended_at'] as String);
-      final gpsDuration = gpsEnd.difference(gpsStart).inSeconds;
-      if (gpsDuration <= 0) continue;
-
-      // Calculate overlap using the ORIGINAL (non-widened) timestamps.
-      final overlapStart = start.isAfter(gpsStart) ? start : gpsStart;
-      final overlapEnd = end.isBefore(gpsEnd) ? end : gpsEnd;
-      final overlapSecs = overlapEnd.difference(overlapStart).inSeconds;
-      if (overlapSecs <= 0) continue;
-
-      // 70% threshold (was 80%) — more forgiving when the watch and phone
-      // disagree on exact start/stop times.
-      final shorterDuration =
-          importDuration < gpsDuration ? importDuration : gpsDuration;
-      if (overlapSecs / shorterDuration > 0.7) {
+      // 70% threshold — forgiving when the phone's own tracker and Outpace GPS
+      // disagree on exact start/stop times. Shares its math with the GPS-save
+      // supersede path (CrossSourceDedup) via DuplicateDetector.overlapExceeds.
+      if (DuplicateDetector.overlapExceeds(start, end, gpsStart, gpsEnd)) {
         return true;
       }
     }

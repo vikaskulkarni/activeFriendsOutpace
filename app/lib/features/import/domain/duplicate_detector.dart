@@ -30,6 +30,29 @@ class DuplicateDetector {
 
   static bool _typesMatch(String left, String right) => left == 'other' || right == 'other' || left == right;
 
+  /// Returns true when the windows [aStart]–[aEnd] and [bStart]–[bEnd] overlap
+  /// by more than [threshold] of the SHORTER window's duration. Integer-second
+  /// math; type-agnostic. Returns false for any non-positive duration or no
+  /// overlap. Shared by the import-time skip and the GPS-save supersede check
+  /// so the two directions use identical math.
+  static bool overlapExceeds(
+    DateTime aStart,
+    DateTime aEnd,
+    DateTime bStart,
+    DateTime bEnd, {
+    double threshold = 0.7,
+  }) {
+    final aDuration = aEnd.difference(aStart).inSeconds;
+    final bDuration = bEnd.difference(bStart).inSeconds;
+    if (aDuration <= 0 || bDuration <= 0) return false;
+    final overlapStart = aStart.isAfter(bStart) ? aStart : bStart;
+    final overlapEnd = aEnd.isBefore(bEnd) ? aEnd : bEnd;
+    final overlapSeconds = overlapEnd.difference(overlapStart).inSeconds;
+    if (overlapSeconds <= 0) return false;
+    final shorterDuration = aDuration < bDuration ? aDuration : bDuration;
+    return overlapSeconds / shorterDuration > threshold;
+  }
+
   static Duration _duration(ActivityFingerprint activity) => activity.endedAt.difference(activity.startedAt);
 
   static Duration _overlap(ActivityFingerprint left, ActivityFingerprint right) {

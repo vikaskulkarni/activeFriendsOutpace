@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:activefriends/data/local/app_database.dart' as local;
 import 'package:activefriends/data/services/last_activity_type_store.dart';
+import 'package:activefriends/features/import/data/cross_source_dedup.dart';
 import 'package:activefriends/features/tracking/data/gps_tracker.dart';
 import 'package:activefriends/features/tracking/data/tracking_local_repository.dart';
 import 'package:activefriends/features/tracking/presentation/finished_activity_summary_screen.dart';
@@ -432,6 +433,17 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ], onConflict: 'activity_id,seq')
               .timeout(saveTimeout);
         }
+        // The same walk may already have been imported from Health Connect /
+        // HealthKit (the phone's own tracker, often auto-synced mid-activity,
+        // before this save). This GPS record is primary, so supersede those
+        // imports (exclude + link). Best-effort: never blocks or breaks a save.
+        await CrossSourceDedup(Supabase.instance.client)
+            .supersedeImportsForGpsActivity(
+          userId: current.id,
+          gpsActivityId: activityId,
+          start: snapshot.startedAt,
+          end: endedAt,
+        );
         final sessionId = _sessionId;
         if (sessionId != null) {
           _localRepository.deleteSession(sessionId).ignore();
